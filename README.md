@@ -4,11 +4,15 @@ This Python script transcribes an input audio file to text using OpenAI's Whispe
 
 ---
 
-## Features
+## Script Features
 
 - Leverages OpenAI's Whisper model for transcription.
 - Supports transcription of `.wav` audio files.
 - Saves the transcribed text into a user-defined file for easy reference.
+
+## API Features
+
+ - Hosts a `/transcription` endpoint that accepts an audio file input and returns the transcribed text
 
 ---
 
@@ -30,7 +34,7 @@ Before running the script, ensure the following requirements are met:
    pip install git+https://github.com/openai/whisper.git
 3. Ensure your audio file is in .wav format and placed in the script’s directory.
 
-## Usage
+## Script Usage
 1.	Modify the script to specify your audio file and output text file:
  - Update the file_name variable to set the desired output text file name.
  - Replace "./house-of-sky-and-breath.wav" with the path to your audio file.
@@ -56,6 +60,41 @@ result = model.transcribe("./house-of-sky-and-breath.wav")
 
 ### Output
  - Transcription saved to `house-of-sky-and-breath.txt`
+
+## Running the Application as a Dockerized API
+
+You can now run this application as a Dockerized API. Follow the steps below to build and run the Docker container:
+
+1. **Build the Docker Image**:
+
+   Ensure you have [Docker installed](https://docs.docker.com/get-docker/). In the root directory of the repository, execute:
+
+   ```bash
+   docker build -t transcription-api .
+   ```
+   This command builds the Docker image and tags it as transcription-api.
+   
+2. **Run the Docker Container:**:
+   After building the image, run the container with:
+   ```bash
+   docker run -d -p 8000:8000 transcription-api
+   ```
+   This command runs the container in detached mode, mapping port 8000 of the host to port 8000 of the container.
+
+3. **Access the API**
+   With the container running, access the API at `http://localhost:8000`
+
+4. **Stopping the Container:**
+To stop the running container, first identify its Container ID:
+```bash
+docker ps
+```
+
+Then stop it using 
+```bash
+docker stop <container_id>
+```
+Replace <container_id> with the actual ID from the docker ps output.
 
 ## Limitations
  - Currently supports .wav format only.
