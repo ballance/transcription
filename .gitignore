@@ -170,3 +170,6 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 work/
+raw_video/
+transcribed/
+.DS_Store
