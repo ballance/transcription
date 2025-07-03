@@ -18,12 +18,14 @@ def transcribe_file(input_file):
     
     # Check if transcription already exists.
     if os.path.exists(output_file):
-        print(f"Skipping '{input_file}'; transcription already exists.")
+        #print(f"Skipping '{input_file}'; transcription already exists.")
         return
     
     print(f"Transcribing '{input_file}'...")
     # Transcribe the audio file.
-    result = model.transcribe(input_file, verbose=True)
+    result = model.transcribe(input_file, 
+        verbose=True,
+        language="en")
     
     # Save the transcribed text.
     with open(output_file, "w", encoding="utf-8") as txt:
