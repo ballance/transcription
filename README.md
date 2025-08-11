@@ -6,8 +6,8 @@ This Python script transcribes an input audio file to text using OpenAI's Whispe
 
 ## Script Features
 
-- Leverages OpenAI's Whisper model for transcription.
-- Supports transcription of `.wav` audio files.
+- Leverages OpenAI's Whisper model LOCALLY for transcription.
+- Supports transcription of `.wav` and `.mp3` audio files.
 - Saves the transcribed text into a user-defined file for easy reference.
 
 ## API Features
