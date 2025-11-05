@@ -28,7 +28,7 @@ SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", "30"))
 
 # Supported file formats
 SUPPORTED_AUDIO_FORMATS = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac")
-SUPPORTED_VIDEO_FORMATS = (".mov", ".mp4", ".m4v")
+SUPPORTED_VIDEO_FORMATS = (".mov", ".mp4", ".m4v", ".mkv")
 
 logger.info(f"Initializing transcription service with model: {MODEL_SIZE}")
 logger.info(f"Video folder: {VIDEO_FOLDER}, Audio folder: {AUDIO_FOLDER}, Output folder: {OUTPUT_FOLDER}")
@@ -236,14 +236,14 @@ def process_file(file_path):
         logger.debug(f"Skipping already processed file: {file_path}")
         return
     
-    # Check if file was created before August 27, 2025
+    # Check if file was created before November 1, 2025
     try:
         file_creation_time = os.path.getctime(file_path)
         creation_date = datetime.fromtimestamp(file_creation_time)
-        cutoff_date = datetime(2025, 8, 27)
-        
+        cutoff_date = datetime(2025, 11, 1)
+
         if creation_date < cutoff_date:
-            logger.debug(f"Skipping file created before August 27, 2025: {file_path} (created: {creation_date.strftime('%Y-%m-%d')})")
+            logger.debug(f"Skipping file created before November 1, 2025: {file_path} (created: {creation_date.strftime('%Y-%m-%d')})")
             return
     except Exception as e:
         logger.warning(f"Could not check creation date for {file_path}: {e}")
