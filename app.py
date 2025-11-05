@@ -14,6 +14,20 @@ print("FastAPI app initialized.")
 model = whisper.load_model("base")
 print("Whisper model loaded.") 
 
+@app.get("/")
+async def root():
+    """Root endpoint for basic connectivity check"""
+    return {"status": "healthy", "service": "owl-web"}
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for ECS/ALB"""
+    return {
+        "status": "healthy",
+        "model_loaded": model is not None,
+        "service": "owl-web"
+    }
+
 @app.post("/transcribe/")
 async def transcribe_audio(file: UploadFile = File(...)):
     """
