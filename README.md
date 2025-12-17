@@ -54,12 +54,31 @@ Before running the script, ensure the following requirements are met:
    - **macOS**: `brew install ffmpeg`
    - **Ubuntu/Debian**: `sudo apt update && sudo apt install ffmpeg`
    - **Windows**: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
-3. Install the required Python dependencies:
+3. Create and activate a virtual environment:
+   ```bash
+   # Create virtual environment
+   python3 -m venv .venv
+
+   # Activate virtual environment
+   # On macOS/Linux:
+   source .venv/bin/activate
+
+   # On Windows:
+   .venv\Scripts\activate
+   ```
+4. Install the required Python dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
 ## Script Usage
+
+**Note**: Make sure your virtual environment is activated before running any scripts:
+```bash
+source .venv/bin/activate  # On macOS/Linux
+# or
+.venv\Scripts\activate  # On Windows
+```
 
 ### Single File Transcription
 
@@ -168,14 +187,19 @@ Transcribed files include metadata headers:
 
 ### Running Locally
 
-1. Start the API server:
+1. Activate the virtual environment (if not already activated):
+   ```bash
+   source .venv/bin/activate  # On macOS/Linux
+   ```
+
+2. Start the API server:
    ```bash
    uvicorn app:app --reload --host 0.0.0.0 --port 8000
    ```
-   
-2. The API will be available at `http://localhost:8000`
 
-3. API Documentation is automatically available at:
+3. The API will be available at `http://localhost:8000`
+
+4. API Documentation is automatically available at:
    - Swagger UI: `http://localhost:8000/docs`
    - ReDoc: `http://localhost:8000/redoc`
 
