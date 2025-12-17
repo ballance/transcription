@@ -236,14 +236,14 @@ def process_file(file_path):
         logger.debug(f"Skipping already processed file: {file_path}")
         return
     
-    # Check if file was created before November 1, 2025
+    # Check if file was created before December 1, 2025
     try:
         file_creation_time = os.path.getctime(file_path)
         creation_date = datetime.fromtimestamp(file_creation_time)
-        cutoff_date = datetime(2025, 11, 1)
+        cutoff_date = datetime(2025, 12, 1)
 
         if creation_date < cutoff_date:
-            logger.debug(f"Skipping file created before November 1, 2025: {file_path} (created: {creation_date.strftime('%Y-%m-%d')})")
+            logger.debug(f"Skipping file created before December 1, 2025: {file_path} (created: {creation_date.strftime('%Y-%m-%d')})")
             return
     except Exception as e:
         logger.warning(f"Could not check creation date for {file_path}: {e}")
