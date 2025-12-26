@@ -1,18 +1,26 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 import whisper
 import os
+import tempfile
 import logging
-logging.basicConfig(level=logging.DEBUG)
+from config import config
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 # Initialize the FastAPI app
-
-print("App is initializing.") 
+logger.info("Initializing FastAPI application")
 app = FastAPI()
-print("FastAPI app initialized.") 
+logger.info("FastAPI app initialized")
 
-# Load the Whisper model
-model = whisper.load_model("base")
-print("Whisper model loaded.") 
+# Load the Whisper model using configuration
+logger.info(f"Loading Whisper model: {config.model_size}")
+model = whisper.load_model(config.model_size)
+logger.info(f"Whisper model loaded: {config.model_size}") 
 
 @app.get("/")
 async def root():
@@ -34,45 +42,65 @@ async def transcribe_audio(file: UploadFile = File(...)):
     Endpoint to transcribe an audio file to text.
     Accepts an uploaded audio file and returns the transcription.
     """
+    temp_file = None
+
     try:
-         # Read file contents to get its size
+        # Read file contents to get its size
         file_content = await file.read()
         file_size = len(file_content)
-        print(f"Uploaded file size: {file_size} bytes")
+        logger.info(f"Received upload: {file.filename} ({file_size} bytes)")
 
-        # Reset the file pointer so it can be read again later
-        await file.seek(0)
-        
-        # Save the uploaded file temporarily
-        temp_file = f"./temp_{file.filename}"
-        with open(temp_file, "wb") as f:
-            f.write(await file.read())
-        
-        print("Temporary file written.") 
+        # Validate file size
+        if file_size > config.max_upload_size_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size is {config.max_upload_size_mb}MB"
+            )
 
-        print(f"Content type is: {file.content_type}") 
-        # Ensure the file is a valid audio file
-        if not (file.content_type.startswith("audio/") or file.content_type == "application/octet-stream"):
-            os.remove(temp_file)
-            print("MIME type validation failed.")
-            raise HTTPException(status_code=400, detail="Uploaded file must be an audio file")
+        # Validate content type
+        if not (file.content_type and
+                (file.content_type.startswith("audio/") or
+                 file.content_type.startswith("video/") or
+                 file.content_type == "application/octet-stream")):
+            logger.warning(f"Invalid content type: {file.content_type}")
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded file must be an audio or video file"
+            )
 
-        print("File appears to be valid audio.") 
+        # Create secure temporary file
+        with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as tmp:
+            temp_file = tmp.name
+            tmp.write(file_content)
+
+        logger.info(f"Saved to temp file: {temp_file}")
 
         # Transcribe the audio file
-        result = model.transcribe(temp_file, verbose=True)
+        logger.info(f"Starting transcription with model: {config.model_size}")
+        result = model.transcribe(temp_file, verbose=False)
 
-        print("Transcription completed.")
-        
-        # Clean up the temporary file
-        os.remove(temp_file)
-        
+        logger.info("Transcription completed successfully")
+
         # Return the transcription text
-        return {"transcription": result["text"]}
-    
+        return {
+            "transcription": result["text"],
+            "language": result.get("language", "unknown"),
+            "model": config.model_size
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        # Handle errors and clean up the temporary file
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
-        print(f"Error during processing: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing the file: {str(e)}")
+        logger.error(f"Error during transcription: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing the file: {str(e)}"
+        )
+    finally:
+        # Always clean up the temporary file
+        if temp_file and os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+                logger.debug(f"Cleaned up temp file: {temp_file}")
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to clean up temp file: {cleanup_error}")

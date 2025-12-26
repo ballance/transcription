@@ -11,6 +11,7 @@ import whisper
 import logging
 from datetime import datetime
 from pathlib import Path
+from config import config
 
 # Configure logging
 logging.basicConfig(
@@ -18,11 +19,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Configuration with environment variable support
-OUTPUT_FOLDER = os.getenv("TRANSCRIBE_OUTPUT_FOLDER", "./transcribed")
-MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large")
-SUPPORTED_FORMATS = (".m4v", ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac")
 
 def get_file_info(file_path):
     """Get file size and basic info for logging."""
@@ -36,7 +32,7 @@ def get_file_info(file_path):
 def transcribe_file(input_file, output_file=None, model_size=None, language="en", verbose=False):
     """
     Transcribe a single audio file using Whisper.
-    
+
     Args:
         input_file: Path to the input audio file
         output_file: Path to the output text file (optional)
@@ -45,26 +41,27 @@ def transcribe_file(input_file, output_file=None, model_size=None, language="en"
         verbose: Enable verbose output during transcription
     """
     start_time = datetime.now()
-    
+
     # Use default model size if not specified
     if model_size is None:
-        model_size = MODEL_SIZE
-    
+        model_size = config.model_size
+
     # Validate input file
     if not os.path.isfile(input_file):
         logger.error(f"Input file not found: {input_file}")
         return False
-    
+
     # Check file extension
     file_ext = Path(input_file).suffix.lower()
-    if file_ext not in SUPPORTED_FORMATS:
-        logger.warning(f"File extension '{file_ext}' may not be supported. Supported formats: {', '.join(SUPPORTED_FORMATS)}")
-    
+    supported_formats = config.supported_audio_formats + config.supported_video_formats
+    if file_ext not in supported_formats:
+        logger.warning(f"File extension '{file_ext}' may not be supported. Supported formats: {', '.join(supported_formats)}")
+
     # Generate output filename if not provided
     if output_file is None:
         base_name = Path(input_file).stem
-        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-        output_file = os.path.join(OUTPUT_FOLDER, f"{base_name}.txt")
+        os.makedirs(config.output_folder, exist_ok=True)
+        output_file = os.path.join(config.output_folder, f"{base_name}.txt")
     
     # Check if transcription already exists
     if os.path.exists(output_file):
@@ -124,11 +121,13 @@ def transcribe_file(input_file, output_file=None, model_size=None, language="en"
         return False
 
 def main():
+    supported_formats = config.supported_audio_formats + config.supported_video_formats
+
     parser = argparse.ArgumentParser(
         description="Transcribe audio files using OpenAI Whisper",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
-Supported audio formats: {', '.join(SUPPORTED_FORMATS)}
+Supported audio formats: {', '.join(supported_formats)}
 
 Environment variables:
   TRANSCRIBE_OUTPUT_FOLDER  Output directory (default: ./transcribed)
@@ -145,19 +144,19 @@ Examples:
 For batch processing with file watching, use transcribe_all.py
         """
     )
-    
+
     parser.add_argument(
         "input_file",
         help="Path to the audio file to transcribe"
     )
     parser.add_argument(
         "-o", "--output",
-        help=f"Output text file path (default: {OUTPUT_FOLDER}/<input_name>.txt)",
+        help=f"Output text file path (default: {config.output_folder}/<input_name>.txt)",
         default=None
     )
     parser.add_argument(
         "-m", "--model",
-        help=f"Whisper model size (default: {MODEL_SIZE})",
+        help=f"Whisper model size (default: {config.model_size})",
         choices=["tiny", "base", "small", "medium", "large"],
         default=None
     )

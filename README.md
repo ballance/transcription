@@ -31,9 +31,12 @@ This Python script transcribes an input audio file to text using OpenAI's Whispe
 ## API Features
 
 - Hosts a `/transcribe/` endpoint that accepts an audio file input and returns the transcribed text
+- **Configurable model size** via `WHISPER_MODEL_SIZE` environment variable
 - Built with FastAPI for high performance
+- Secure temporary file handling
+- File size validation (configurable via `MAX_UPLOAD_SIZE_MB`)
 - Automatic cleanup of temporary files
-- Comprehensive error handling
+- Comprehensive error handling and logging
 
 ---
 
@@ -41,19 +44,24 @@ This Python script transcribes an input audio file to text using OpenAI's Whispe
 
 Before running the script, ensure the following requirements are met:
 
-1. **Python**: Version 3.8 or higher.
-2. **FFmpeg**: Required for audio processing (Whisper dependency).
-3. **Dependencies**: Listed in `requirements.txt`
+1. **Python**: Version 3.9 or higher recommended.
+2. **FFmpeg**: Required for audio/video processing (system dependency, not a Python package).
+3. **Python Dependencies**: Listed in `requirements.txt`
+4. **Hardware**: Sufficient RAM for your chosen model size (see model recommendations above)
 
 ---
 
 ## Installation
 
 1. Clone this repository or download the script.
-2. Install FFmpeg (if not already installed):
+
+2. **Install FFmpeg** (system dependency - must be installed separately):
    - **macOS**: `brew install ffmpeg`
    - **Ubuntu/Debian**: `sudo apt update && sudo apt install ffmpeg`
    - **Windows**: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
+
+   **Note:** FFmpeg is NOT installed via pip. It must be installed as a system package.
+
 3. Create and activate a virtual environment:
    ```bash
    # Create virtual environment
@@ -69,6 +77,12 @@ Before running the script, ensure the following requirements are met:
 4. Install the required Python dependencies:
    ```bash
    pip install -r requirements.txt
+   ```
+
+5. (Optional) Configure environment variables:
+   ```bash
+   cp .env.example .env
+   # Edit .env to customize settings
    ```
 
 ## Script Usage
@@ -125,20 +139,53 @@ python transcribe_all.py
 
 ### Environment Variables
 
-Configure the scripts using environment variables:
+Configure the scripts using environment variables. For convenience, copy `.env.example` to `.env` and customize:
 
 ```bash
-# Set input folder for batch processing (transcribe_all.py)
-export TRANSCRIBE_INPUT_FOLDER="./my_audio_files"
+cp .env.example .env
+# Edit .env with your preferred settings
+```
 
-# Set output folder for transcriptions
-export TRANSCRIBE_OUTPUT_FOLDER="./my_transcriptions"
+**Available Configuration Options:**
 
-# Set default Whisper model size (tiny, base, small, medium, large)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WHISPER_MODEL_SIZE` | `large` | Whisper model size: `tiny`, `base`, `small`, `medium`, or `large`<br>**Trade-off:** larger = more accurate but slower |
+| `WHISPER_FP16` | `false` | Enable FP16 processing (faster on compatible hardware) |
+| `TRANSCRIBE_VIDEO_FOLDER` | `~/Movies` | Folder to scan for video files (batch mode) |
+| `TRANSCRIBE_AUDIO_FOLDER` | `./work` | Folder to scan for audio files (batch mode) |
+| `TRANSCRIBE_WORK_FOLDER` | `./work` | Working directory for temporary files |
+| `TRANSCRIBE_OUTPUT_FOLDER` | `./transcribed` | Where to save transcription output |
+| `SCAN_INTERVAL` | `30` | How often to scan for new files (seconds) |
+| `MAX_RETRIES` | `3` | Maximum retry attempts for failed transcriptions |
+| `SKIP_FILES_BEFORE_DATE` | `2025-12-01` | Skip files created before this date (YYYY-MM-DD) |
+| `MAX_UPLOAD_SIZE_MB` | `500` | Maximum upload file size for API (megabytes) |
+
+**Model Size Recommendations:**
+
+- **`tiny`** - Fastest, lowest accuracy (~1GB RAM, ~32x realtime)
+- **`base`** - Fast, decent accuracy (~1GB RAM, ~16x realtime)
+- **`small`** - Balanced speed/accuracy (~2GB RAM, ~6x realtime)
+- **`medium`** - Good accuracy, slower (~5GB RAM, ~2x realtime)
+- **`large`** - Best accuracy, slowest (~10GB RAM, ~1x realtime) ⭐ **Recommended for quality**
+
+**Quick Setup Examples:**
+
+```bash
+# Use medium model for faster processing while maintaining good accuracy
 export WHISPER_MODEL_SIZE="medium"
 
-# Set scan interval in seconds (transcribe_all.py only)
+# Use large model for best accuracy (default)
+export WHISPER_MODEL_SIZE="large"
+
+# Set custom output folder
+export TRANSCRIBE_OUTPUT_FOLDER="./my_transcriptions"
+
+# Scan more frequently (every 60 seconds)
 export SCAN_INTERVAL="60"
+
+# Skip files before a specific date
+export SKIP_FILES_BEFORE_DATE="2025-01-01"
 ```
 
 ## Examples
@@ -222,7 +269,9 @@ curl -X POST "http://localhost:8000/transcribe/" \
 Example response:
 ```json
 {
-  "transcription": "This is the transcribed text from your audio file."
+  "transcription": "This is the transcribed text from your audio file.",
+  "language": "en",
+  "model": "large"
 }
 ```
 
