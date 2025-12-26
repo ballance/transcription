@@ -1,4 +1,29 @@
-fastapi
-uvicorn
+# Web framework
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+
+# Transcription engine
 git+https://github.com/openai/whisper.git
-python-multipart
+
+# Async processing
+celery>=5.3.4
+redis>=5.0.1
+
+# Database
+sqlalchemy>=2.0.25
+alembic>=1.13.1
+psycopg2-binary>=2.9.9
+
+# PyTorch (required by Whisper)
+torch>=2.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+psutil>=5.9.0
+
+# Testing (optional, for development)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
