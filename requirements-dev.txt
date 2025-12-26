@@ -1,0 +1,28 @@
+# Development dependencies (not needed in production)
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+pytest-timeout>=2.1.0
+
+# Code quality
+black>=23.0.0
+flake8>=6.0.0
+isort>=5.12.0
+mypy>=1.5.0
+pylint>=3.0.0
+
+# Security
+safety>=2.3.0
+bandit>=1.7.5
+
+# Documentation
+mkdocs>=1.5.0
+mkdocs-material>=9.0.0
+
+# Development tools
+ipython>=8.12.0
+ipdb>=0.13.13
+pre-commit>=3.3.0

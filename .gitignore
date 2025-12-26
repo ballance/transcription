@@ -173,3 +173,25 @@ work/
 raw_video/
 transcribed/
 .DS_Store
+
+# Test files
+*.wav
+*.mp3
+*.mp4
+*.m4a
+*.mkv
+*.flac
+*.ogg
+*.aac
+tests/fixtures/*.wav
+tests/fixtures/*.mp3
+
+# Test coverage
+.coverage
+htmlcov/
+coverage.xml
+.pytest_cache/
+
+# Environment
+.env.local
+.env.*.local
