@@ -34,6 +34,20 @@ class TranscriptionConfig:
     # API settings
     max_upload_size_mb: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "500"))
 
+    # Async processing settings
+    redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    celery_broker_url: str = os.getenv("CELERY_BROKER_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    celery_result_backend: str = os.getenv("CELERY_RESULT_BACKEND", os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    database_url: str = os.getenv("DATABASE_URL", "postgresql://transcription:transcription@localhost/transcription")
+
+    # Worker settings
+    celery_worker_concurrency: int = int(os.getenv("CELERY_CONCURRENCY", "4"))
+    celery_task_timeout: int = int(os.getenv("CELERY_TASK_TIMEOUT", "3600"))  # 1 hour default
+
+    # Model pool settings
+    model_pool_size: int = int(os.getenv("MODEL_POOL_SIZE", "2"))
+    model_pool_max_size: int = int(os.getenv("MODEL_POOL_MAX_SIZE", "4"))
+
     # Supported formats
     supported_audio_formats: Tuple[str, ...] = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac")
     supported_video_formats: Tuple[str, ...] = (".mov", ".mp4", ".m4v", ".mkv")

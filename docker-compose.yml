@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database for job tracking
+  postgres:
+    image: postgres:15-alpine
+    container_name: transcription-db
+    environment:
+      POSTGRES_DB: transcription
+      POSTGRES_USER: transcription
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-transcription}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transcription"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - transcription
+
+  # Redis for Celery message broker
+  redis:
+    image: redis:7-alpine
+    container_name: transcription-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - transcription
+
+  # FastAPI web service
+  web:
+    build: .
+    container_name: transcription-web
+    command: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./work:/app/work
+      - ./transcribed:/app/transcribed
+      - .:/app  # Mount code for hot reload during development
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://transcription:${DB_PASSWORD:-transcription}@postgres/transcription
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-tiny}
+      - MODEL_POOL_SIZE=${MODEL_POOL_SIZE:-2}
+      - MODEL_POOL_MAX_SIZE=${MODEL_POOL_MAX_SIZE:-4}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - transcription
+
+  # Celery worker for transcription tasks
+  worker:
+    build: .
+    container_name: transcription-worker
+    command: python worker.py
+    volumes:
+      - ./work:/app/work
+      - ./transcribed:/app/transcribed
+      - model_cache:/root/.cache/whisper  # Share model cache across containers
+      - .:/app  # Mount code for hot reload
+    environment:
+      - DATABASE_URL=postgresql://transcription:${DB_PASSWORD:-transcription}@postgres/transcription
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-tiny}
+      - CELERY_CONCURRENCY=${CELERY_CONCURRENCY:-2}
+      - MODEL_POOL_SIZE=${MODEL_POOL_SIZE:-2}
+      - MODEL_POOL_MAX_SIZE=${MODEL_POOL_MAX_SIZE:-4}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - transcription
+    deploy:
+      replicas: 1  # Scale with: docker-compose up --scale worker=3
+
+  # Flower - Celery monitoring (optional)
+  flower:
+    build: .
+    container_name: transcription-flower
+    command: celery -A celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+    networks:
+      - transcription
+
+volumes:
+  postgres_data:
+  redis_data:
+  model_cache:  # Shared Whisper model cache
+
+networks:
+  transcription:
+    driver: bridge
