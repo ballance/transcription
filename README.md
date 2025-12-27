@@ -1,5 +1,10 @@
 # Audio-to-Text Transcription with OpenAI Whisper
 
+[![CI/CD](https://github.com/ballance/transcription/actions/workflows/ci.yml/badge.svg)](https://github.com/ballance/transcription/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 A production-ready transcription service powered by OpenAI's Whisper, featuring asynchronous job processing, intelligent model pooling, and a RESTful API.
 
 ---

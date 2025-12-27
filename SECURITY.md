@@ -33,7 +33,10 @@ Currently supported versions of the transcription service:
 We take security seriously. If you discover a security vulnerability:
 
 1. **DO NOT** open a public GitHub issue
-2. Email security concerns to: [YOUR_EMAIL]
+2. **Use GitHub Security Advisories** to privately report security issues:
+   - Go to the repository's Security tab
+   - Click "Report a vulnerability"
+   - Or email: security@[repository-domain] (if configured)
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
@@ -154,6 +157,9 @@ All API requests are logged with:
 
 ## Security Contacts
 
-- Security Lead: [YOUR_NAME]
-- Email: [YOUR_EMAIL]
-- PGP Key: [YOUR_PGP_KEY_ID]
+For security-related inquiries:
+- **GitHub Security Advisories**: Use the repository's Security tab to report vulnerabilities privately
+- **General Questions**: Open a GitHub Discussion for non-sensitive security questions
+- **Project Maintainers**: Contact repository maintainers through GitHub for security coordination
+
+For organizations deploying this service in production, configure your own security contacts in this section.
