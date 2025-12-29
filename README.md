@@ -9,6 +9,29 @@ A production-ready transcription service powered by OpenAI's Whisper, featuring 
 
 ---
 
+## Security Notice for Production Use
+
+**This repository is a technical demonstration of async transcription architecture.**
+
+It is **NOT production-ready** for handling sensitive data without significant security hardening.
+
+**Current security posture:**
+- Basic API key authentication (no RBAC, no MFA)
+- No encryption at rest
+- No immutable audit trail
+- No PII redaction capabilities
+- No CJIS compliance
+
+**For production deployment requirements and security roadmap, see [SECURITY_ADDENDUM.md](SECURITY_ADDENDUM.md).**
+
+**This demonstration focuses on:**
+- Async job queue architecture
+- Model pooling for performance
+- Distributed task processing
+- Database-backed job tracking
+
+---
+
 ## Overview
 
 This service provides multiple ways to transcribe audio/video files:

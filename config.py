@@ -48,6 +48,10 @@ class TranscriptionConfig:
     model_pool_size: int = int(os.getenv("MODEL_POOL_SIZE", "2"))
     model_pool_max_size: int = int(os.getenv("MODEL_POOL_MAX_SIZE", "4"))
 
+    # Security settings
+    force_https: bool = os.getenv("FORCE_HTTPS", "false").lower() == "true"
+    trusted_hosts: str = os.getenv("TRUSTED_HOSTS", "")  # Comma-separated list
+
     # Supported formats
     supported_audio_formats: Tuple[str, ...] = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac")
     supported_video_formats: Tuple[str, ...] = (".mov", ".mp4", ".m4v", ".mkv")

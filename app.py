@@ -1,4 +1,6 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Query, Request, status
+from fastapi.responses import RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 import os
 import tempfile
 import logging
@@ -27,6 +29,33 @@ app = FastAPI(
     version="2.0.0"
 )
 logger.info("FastAPI app initialized")
+
+
+class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
+    """
+    Redirect HTTP requests to HTTPS in production.
+
+    Only active when FORCE_HTTPS=true environment variable is set.
+    Respects X-Forwarded-Proto header for load balancer deployments.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if config.force_https:
+            forwarded_proto = request.headers.get("x-forwarded-proto", "")
+            if forwarded_proto == "http" or (
+                not forwarded_proto and request.url.scheme == "http"
+            ):
+                url = request.url.replace(scheme="https")
+                return RedirectResponse(
+                    url=str(url),
+                    status_code=status.HTTP_301_MOVED_PERMANENTLY
+                )
+        return await call_next(request)
+
+
+# Add HTTPS enforcement middleware
+app.add_middleware(HTTPSRedirectMiddleware)
+
 
 # Check database connection on startup
 @app.on_event("startup")
