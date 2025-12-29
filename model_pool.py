@@ -216,11 +216,24 @@ class ModelPool:
             RuntimeError: If model loading fails or OOM occurs
         """
         try:
-            logger.info(f"Loading Whisper model: {model_size}")
+            device = config.compute_device
+            logger.info(f"Loading Whisper model: {model_size} on {device}")
             load_start = datetime.now()
 
-            # Load model from Whisper
-            model = whisper.load_model(model_size)
+            # Load model from Whisper with explicit device
+            try:
+                model = whisper.load_model(model_size, device=device)
+            except NotImplementedError as e:
+                # MPS backend doesn't support sparse tensor operations used by Whisper
+                if "SparseMPS" in str(e) and device == "mps":
+                    logger.warning(
+                        "MPS backend doesn't support sparse tensors for Whisper, "
+                        "falling back to CPU"
+                    )
+                    device = "cpu"
+                    model = whisper.load_model(model_size, device=device)
+                else:
+                    raise
 
             load_time = (datetime.now() - load_start).total_seconds()
 
@@ -275,8 +288,7 @@ class ModelPool:
                 )
 
                 # Clear GPU memory before retry
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                self._clear_gpu_cache()
                 gc.collect()
 
                 # Try to load smaller model
@@ -311,8 +323,14 @@ class ModelPool:
         gc.collect()
 
         # Clear GPU cache if available
+        self._clear_gpu_cache()
+
+    def _clear_gpu_cache(self):
+        """Clear GPU memory cache for CUDA or MPS."""
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
 
     def _evict_lru_model(self):
         """

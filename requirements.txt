@@ -16,6 +16,7 @@ alembic>=1.13.1
 psycopg2-binary>=2.9.9
 
 # PyTorch (required by Whisper)
+# Docker pre-installs CPU-only torch; this line is skipped there but used for local dev
 torch>=2.0.0
 
 # Utilities

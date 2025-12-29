@@ -13,16 +13,20 @@ A production-ready transcription service powered by OpenAI's Whisper, featuring 
 
 **This repository is a technical demonstration of async transcription architecture.**
 
-It is **NOT production-ready** for handling sensitive data without significant security hardening.
+While security foundations are in place, additional hardening is recommended before handling sensitive data in production.
 
-**Current security posture:**
-- Basic API key authentication (no RBAC, no MFA)
-- No encryption at rest
-- No immutable audit trail
-- No PII redaction capabilities
-- No CJIS compliance
+**Current security features:**
+- API key authentication with SHA-256 hashing
+- Rate limiting (100 requests/minute per API key)
+- PII-safe logging with automatic redaction (SSN, credit cards, emails, phones)
+- Immutable audit trail with cryptographic hash chain for tamper detection
+- HTTPS redirect middleware for production deployments
 
-**For production deployment requirements and security roadmap, see [SECURITY_ADDENDUM.md](SECURITY_ADDENDUM.md).**
+**Not yet implemented (see [SECURITY.md](SECURITY.md) for roadmap):**
+- Role-Based Access Control (RBAC)
+- Multi-factor authentication (MFA)
+- Encryption at rest
+- Full CJIS/HIPAA compliance certification
 
 **This demonstration focuses on:**
 - Async job queue architecture

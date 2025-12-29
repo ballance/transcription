@@ -13,6 +13,7 @@ from database import get_db, check_db_connection
 from models import TranscriptionJob, TranscriptionResult, ErrorLog
 from tasks import transcribe_audio_task
 from model_pool import get_pool_stats
+from auth import check_rate_limit
 
 # Configure logging
 logging.basicConfig(
@@ -298,9 +299,14 @@ async def list_jobs(
 
 
 @app.get("/admin/health")
-async def admin_health_check(db: Session = Depends(get_db)):
+async def admin_health_check(
+    db: Session = Depends(get_db),
+    api_key: str = Depends(check_rate_limit)
+):
     """
     Comprehensive health check with system metrics.
+
+    Requires API key authentication via X-API-Key header.
 
     Returns:
         Detailed health information including queue depths, error rates, pool stats
@@ -347,10 +353,13 @@ async def admin_health_check(db: Session = Depends(get_db)):
 async def get_recent_errors(
     limit: int = Query(50, ge=1, le=100),
     resolved: bool = Query(False),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    api_key: str = Depends(check_rate_limit)
 ):
     """
     Get recent errors from Dead Letter Queue.
+
+    Requires API key authentication via X-API-Key header.
 
     Args:
         limit: Maximum errors to return

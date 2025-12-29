@@ -26,8 +26,21 @@ logger.info(f"Skipping files created before: {config.skip_files_before_date}")
 
 # Load Whisper model
 try:
-    model = whisper.load_model(config.model_size)
-    logger.info(f"Successfully loaded Whisper model: {config.model_size}")
+    device = config.compute_device
+    model = whisper.load_model(config.model_size, device=device)
+    logger.info(f"Successfully loaded Whisper model: {config.model_size} on {device}")
+except NotImplementedError as e:
+    # MPS backend doesn't support sparse tensor operations used by Whisper
+    if "SparseMPS" in str(e) and device == "mps":
+        logger.warning(
+            "MPS backend doesn't support sparse tensors for Whisper, falling back to CPU"
+        )
+        device = "cpu"
+        model = whisper.load_model(config.model_size, device=device)
+        logger.info(f"Successfully loaded Whisper model: {config.model_size} on {device}")
+    else:
+        logger.error(f"Failed to load Whisper model '{config.model_size}': {e}")
+        raise
 except Exception as e:
     logger.error(f"Failed to load Whisper model '{config.model_size}': {e}")
     raise

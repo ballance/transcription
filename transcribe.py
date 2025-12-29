@@ -72,11 +72,25 @@ def transcribe_file(input_file, output_file=None, model_size=None, language="en"
             return False
     
     file_info = get_file_info(input_file)
-    logger.info(f"Loading Whisper model: {model_size}")
-    
+    device = config.compute_device
+    logger.info(f"Loading Whisper model: {model_size} on {device}")
+
     try:
-        model = whisper.load_model(model_size)
-        logger.info(f"Successfully loaded Whisper model: {model_size}")
+        model = whisper.load_model(model_size, device=device)
+        logger.info(f"Successfully loaded Whisper model: {model_size} on {device}")
+    except NotImplementedError as e:
+        # MPS backend doesn't support sparse tensor operations used by Whisper
+        if "SparseMPS" in str(e) and device == "mps":
+            logger.warning(
+                "MPS backend doesn't support sparse tensors for Whisper, "
+                "falling back to CPU"
+            )
+            device = "cpu"
+            model = whisper.load_model(model_size, device=device)
+            logger.info(f"Successfully loaded Whisper model: {model_size} on {device}")
+        else:
+            logger.error(f"Failed to load Whisper model '{model_size}': {e}")
+            return False
     except Exception as e:
         logger.error(f"Failed to load Whisper model '{model_size}': {e}")
         return False

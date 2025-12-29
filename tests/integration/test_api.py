@@ -6,11 +6,17 @@ Tests the full API flow including:
 - Status polling
 - Job cancellation
 - Error handling
+- Admin endpoint authentication
 """
+import os
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, Mock
 import io
+
+# Set test API key for authenticated endpoints
+TEST_API_KEY = "test-api-key-12345"
+os.environ["API_KEYS"] = TEST_API_KEY
 
 
 @pytest.mark.integration
@@ -98,19 +104,36 @@ class TestTranscriptionAPI:
     
     def test_admin_health_endpoint(self, client):
         """Test comprehensive admin health check."""
-        response = client.get("/admin/health")
+        response = client.get(
+            "/admin/health",
+            headers={"X-API-Key": TEST_API_KEY}
+        )
         assert response.status_code == 200
         data = response.json()
         assert "status" in data
         assert "queues" in data
         assert "model_pool" in data
-    
+
+    def test_admin_health_requires_auth(self, client):
+        """Test admin health check requires authentication."""
+        response = client.get("/admin/health")
+        assert response.status_code == 401
+
     def test_admin_errors_endpoint(self, client):
         """Test dead letter queue viewing."""
-        response = client.get("/admin/errors")
+        response = client.get(
+            "/admin/errors",
+            headers={"X-API-Key": TEST_API_KEY}
+        )
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
+        assert "total" in data
+        assert "errors" in data
+
+    def test_admin_errors_requires_auth(self, client):
+        """Test admin errors endpoint requires authentication."""
+        response = client.get("/admin/errors")
+        assert response.status_code == 401
 
 
 @pytest.mark.integration

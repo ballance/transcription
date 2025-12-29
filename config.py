@@ -5,9 +5,11 @@ All configuration is managed through environment variables with sensible default
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Tuple
+
+import torch
 
 
 @dataclass
@@ -17,6 +19,7 @@ class TranscriptionConfig:
     # Model settings
     model_size: str = os.getenv("WHISPER_MODEL_SIZE", "large")
     fp16: bool = os.getenv("WHISPER_FP16", "false").lower() == "true"
+    device: str = field(default_factory=lambda: os.getenv("WHISPER_DEVICE", "auto"))
 
     # Paths
     video_folder: str = os.getenv("TRANSCRIBE_VIDEO_FOLDER", os.path.expanduser("~/Movies"))
@@ -84,6 +87,17 @@ class TranscriptionConfig:
     def max_upload_size_bytes(self) -> int:
         """Get max upload size in bytes."""
         return self.max_upload_size_mb * 1024 * 1024
+
+    @property
+    def compute_device(self) -> str:
+        """Get the resolved compute device (mps, cuda, or cpu)."""
+        if self.device != "auto":
+            return self.device
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
 
 
 # Global configuration instance
