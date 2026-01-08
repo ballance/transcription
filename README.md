@@ -140,30 +140,14 @@ For detailed setup, testing, and troubleshooting, see **[SETUP.md](SETUP.md)**.
 ## Architecture
 
 ```
-User → FastAPI (REST API)
-         ↓
-    PostgreSQL (Job DB)
-         ↓
-    Redis (Message Broker)
-         ↓
-    Celery Worker(s)
-         ↓
-    Model Pool (Thread-safe cache)
-         ↓
-    Whisper Transcription
-         ↓
-    PostgreSQL (Results)
-         ↓
-    User Polls /transcribe/{job_id}
+User → FastAPI → PostgreSQL → Redis → Celery Workers → Model Pool → Whisper
+                                                                      ↓
+User ← Poll /transcribe/{job_id} ←──────── PostgreSQL (Results) ←────┘
 ```
 
-**Components:**
-- **FastAPI** - Async web framework for API endpoints
-- **PostgreSQL** - Job tracking, results, error logging
-- **Redis** - Message broker for Celery task queue
-- **Celery** - Distributed task queue for async processing
-- **Model Pool** - Thread-safe Whisper model cache (eliminates reload overhead)
-- **Docker Compose** - Orchestrates all services
+**Components:** FastAPI (async API), PostgreSQL (job tracking), Redis (message broker), Celery (task queue), Model Pool (thread-safe Whisper cache), Docker Compose (orchestration).
+
+> **For detailed architecture diagrams and code-level documentation, see [agents.md](agents.md).**
 
 ---
 
@@ -427,78 +411,30 @@ python transcribe_all.py
 
 ## Troubleshooting
 
-### Docker Compose Issues
-
 ```bash
-# Check service status
-docker-compose ps
-
-# View logs
-docker-compose logs worker
-docker-compose logs web
-
-# Restart services
-docker-compose restart worker
-
-# Check database connection
-curl http://localhost:8000/health
-
-# Check queue depth
-curl http://localhost:8000/admin/health | jq '.queues'
+docker-compose ps              # Check service status
+docker-compose logs worker     # View worker logs
+docker-compose restart worker  # Restart worker
+curl http://localhost:8000/admin/health | jq  # System health
 ```
 
-### Common Issues
+**Common fixes:**
+- Jobs stuck in "pending" → Check worker is running, restart if needed
+- Out of memory → Reduce `WHISPER_MODEL_SIZE`, `MODEL_POOL_SIZE`, `CELERY_CONCURRENCY`
 
-**Jobs stuck in "pending":**
-```bash
-# Check worker is running
-docker-compose ps worker
-
-# Check worker logs
-docker-compose logs worker
-
-# Restart worker
-docker-compose restart worker
-```
-
-**Out of memory errors:**
-```bash
-# Reduce model size in .env
-WHISPER_MODEL_SIZE=small
-
-# Reduce pool size
-MODEL_POOL_SIZE=1
-MODEL_POOL_MAX_SIZE=2
-
-# Reduce worker concurrency
-CELERY_CONCURRENCY=1
-```
-
-For detailed troubleshooting, see **[SETUP.md](SETUP.md)**.
+For detailed troubleshooting, see **[SETUP.md](SETUP.md)** and **[agents.md](agents.md#debugging-tips)**.
 
 ---
 
 ## Project Structure
 
-```
-transcription/
-├── app.py                 # FastAPI async API endpoints
-├── worker.py             # Celery worker entry point
-├── celery_app.py         # Celery configuration
-├── tasks.py              # Async transcription tasks
-├── models.py             # Database models (SQLAlchemy)
-├── database.py           # Database connection & sessions
-├── model_pool.py         # Thread-safe Whisper model pool
-├── config.py             # Centralized configuration
-├── transcribe.py         # CLI single-file transcription
-├── transcribe_all.py     # CLI batch folder monitoring
-├── docker-compose.yml    # Full stack deployment
-├── requirements.txt      # Python dependencies
-├── alembic.ini          # Database migration config
-├── migrations/          # Alembic migration files
-├── SETUP.md             # Detailed setup & testing guide
-└── README.md            # This file
-```
+**Core:** `app.py` (API), `worker.py`, `celery_app.py`, `tasks.py`, `model_pool.py`
+**Data:** `models.py`, `database.py`, `config.py`, `migrations/`
+**CLI:** `transcribe.py`, `transcribe_all.py`
+**Ops:** `docker-compose.yml`, `Dockerfile`, `requirements.txt`
+**Docs:** `README.md`, `SETUP.md`, `SECURITY.md`, `agents.md`
+
+> **For detailed file-by-file documentation, see [agents.md](agents.md#key-files--their-responsibilities).**
 
 ---
 

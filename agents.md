@@ -1,6 +1,9 @@
 # Developer & AI Agent Guide
 
-This document provides technical context for developers and AI agents working on the transcription service codebase.
+Technical reference for developers and AI agents working on the transcription service codebase.
+
+> **For user documentation** (quick start, API usage, configuration): see [README.md](README.md)
+> **For setup and deployment**: see [SETUP.md](SETUP.md)
 
 ---
 
@@ -349,28 +352,7 @@ except CustomErrorType as e:
 
 ## Testing
 
-### Manual Testing with Docker Compose
-
-```bash
-# Start stack
-docker-compose up -d
-
-# Submit test job
-JOB_ID=$(curl -s -X POST "http://localhost:8000/transcribe/" \
-  -F "file=@test.mp3" | jq -r '.job_id')
-
-# Poll status
-watch -n 2 "curl -s http://localhost:8000/transcribe/$JOB_ID | jq '.status, .progress'"
-
-# Check admin health
-curl -s http://localhost:8000/admin/health | jq
-
-# View worker logs
-docker-compose logs -f worker
-
-# Check Flower monitoring
-open http://localhost:5555
-```
+> **For basic API testing commands**, see [README.md](README.md#quick-start-docker-compose---recommended).
 
 ### Testing Model Pool
 
@@ -401,6 +383,8 @@ curl -s "http://localhost:8000/admin/errors" | jq
 ---
 
 ## Configuration Best Practices
+
+> **For environment variable reference**, see [README.md](README.md#configuration).
 
 ### Development Environment
 
@@ -569,10 +553,11 @@ with get_db_session() as db:
 
 ## Additional Resources
 
-- **API Documentation**: http://localhost:8000/docs (Swagger UI)
-- **Task Monitoring**: http://localhost:5555 (Flower)
-- **Setup Guide**: [SETUP.md](SETUP.md)
-- **User Guide**: [README.md](README.md)
+- **Swagger UI**: http://localhost:8000/docs
+- **Flower (task monitoring)**: http://localhost:5555
+- **[README.md](README.md)** - User guide, API reference, configuration
+- **[SETUP.md](SETUP.md)** - Deployment and setup instructions
+- **[SECURITY.md](SECURITY.md)** - Security architecture and roadmap
 
 ---
 
