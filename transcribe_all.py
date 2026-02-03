@@ -17,12 +17,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# File stability tracking - tracks (size, mtime, first_stable_time) for each file
+# Files must be unchanged for stability_window seconds before processing
+file_stability_tracker: dict[str, tuple[int, float, float]] = {}
+
 logger.info(f"Initializing transcription service with model: {config.model_size}")
 logger.info(
     f"Video folder: {config.video_folder}, Audio folder: {config.audio_folder}, "
     f"Output folder: {config.output_folder}"
 )
 logger.info(f"Skipping files created before: {config.skip_files_before_date}")
+logger.info(f"File stability window: {config.stability_window}s (files must be unchanged before processing)")
 
 # Load Whisper model
 try:
@@ -44,6 +49,60 @@ except NotImplementedError as e:
 except Exception as e:
     logger.error(f"Failed to load Whisper model '{config.model_size}': {e}")
     raise
+
+
+def is_file_stable(file_path: str) -> bool:
+    """
+    Check if a file has been stable (unchanged) for the configured stability window.
+
+    This prevents processing files that are still being written to.
+    Returns True if file is ready for processing, False if still potentially being written.
+    """
+    try:
+        current_size = os.path.getsize(file_path)
+        current_mtime = os.path.getmtime(file_path)
+    except OSError as e:
+        logger.debug(f"Cannot stat file {file_path}: {e}")
+        return False
+
+    now = time.time()
+
+    if file_path in file_stability_tracker:
+        last_size, last_mtime, first_stable = file_stability_tracker[file_path]
+
+        if current_size == last_size and current_mtime == last_mtime:
+            # File unchanged - check if stable long enough
+            stable_duration = now - first_stable
+            if stable_duration >= config.stability_window:
+                logger.debug(
+                    f"File stable for {stable_duration:.1f}s (>= {config.stability_window}s): {file_path}"
+                )
+                return True
+            else:
+                logger.debug(
+                    f"File stable for {stable_duration:.1f}s (need {config.stability_window}s): {file_path}"
+                )
+                return False
+        else:
+            # File changed - reset tracker
+            logger.debug(
+                f"File changed (size: {last_size}->{current_size}, mtime: {last_mtime}->{current_mtime}): {file_path}"
+            )
+            file_stability_tracker[file_path] = (current_size, current_mtime, now)
+            return False
+    else:
+        # First time seeing this file
+        logger.debug(f"First observation of file, starting stability tracking: {file_path}")
+        file_stability_tracker[file_path] = (current_size, current_mtime, now)
+        return False
+
+
+def cleanup_stability_tracker(existing_files: set[str]) -> None:
+    """Remove entries from stability tracker for files that no longer exist or were processed."""
+    stale_paths = [path for path in file_stability_tracker if path not in existing_files]
+    for path in stale_paths:
+        del file_stability_tracker[path]
+        logger.debug(f"Removed from stability tracker: {path}")
 
 
 def get_file_info(file_path):
@@ -303,14 +362,23 @@ def process_file(file_path):
 
 
 def scan_folder():
-    """Scan video and audio folders and process files."""
+    """Scan video and audio folders and process files.
+
+    Files must be stable (unchanged) for the configured stability_window
+    before they will be processed. This prevents processing files that
+    are still being written.
+    """
+    seen_files: set[str] = set()
+
     try:
         # Scan video folder for video files
         if os.path.exists(config.video_folder):
             for file_name in os.listdir(config.video_folder):
                 if file_name.lower().endswith(config.supported_video_formats):
                     file_path = os.path.join(config.video_folder, file_name)
-                    process_file(file_path)
+                    seen_files.add(file_path)
+                    if is_file_stable(file_path):
+                        process_file(file_path)
         else:
             logger.warning(f"Video folder does not exist: {config.video_folder}")
 
@@ -319,9 +387,14 @@ def scan_folder():
             for file_name in os.listdir(config.audio_folder):
                 if file_name.lower().endswith(config.supported_audio_formats):
                     file_path = os.path.join(config.audio_folder, file_name)
-                    process_file(file_path)
+                    seen_files.add(file_path)
+                    if is_file_stable(file_path):
+                        process_file(file_path)
         else:
             logger.warning(f"Audio folder does not exist: {config.audio_folder}")
+
+        # Clean up tracker entries for files that no longer exist
+        cleanup_stability_tracker(seen_files)
 
     except PermissionError as e:
         logger.error(f"Permission denied accessing folder: {e}")
@@ -332,7 +405,10 @@ def scan_folder():
 if __name__ == "__main__":
     os.makedirs(config.output_folder, exist_ok=True)
     os.makedirs(config.work_folder, exist_ok=True)
-    logger.info(f"Starting folder scan (interval: {config.scan_interval}s)")
+    logger.info(
+        f"Starting folder scan (interval: {config.scan_interval}s, "
+        f"stability window: {config.stability_window}s)"
+    )
 
     try:
         while True:

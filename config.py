@@ -30,6 +30,7 @@ class TranscriptionConfig:
     # Processing settings
     scan_interval: int = int(os.getenv("SCAN_INTERVAL", "30"))
     max_retries: int = int(os.getenv("MAX_RETRIES", "3"))
+    stability_window: int = int(os.getenv("FILE_STABILITY_WINDOW", "60"))  # seconds of no changes before processing
 
     # File filtering
     skip_files_before_date: str = os.getenv("SKIP_FILES_BEFORE_DATE", "2025-12-01")
