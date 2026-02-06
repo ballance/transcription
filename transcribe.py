@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
-Single-file audio transcription script using OpenAI Whisper.
+Single-file audio transcription script using WhisperX.
 For batch processing with file watching, use transcribe_all.py instead.
 """
 
 import os
 import sys
 import argparse
-import whisper
 import logging
 from datetime import datetime
 from pathlib import Path
 from config import config
+from whisperx_pipeline import (
+    format_segments_as_text,
+    load_transcription_model,
+    transcribe as whisperx_transcribe,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -29,16 +33,17 @@ def get_file_info(file_path):
     except Exception:
         return "unknown size"
 
-def transcribe_file(input_file, output_file=None, model_size=None, language="en", verbose=False):
+def transcribe_file(input_file, output_file=None, model_size=None, language="en", verbose=False, diarize=False):
     """
-    Transcribe a single audio file using Whisper.
+    Transcribe a single audio file using WhisperX.
 
     Args:
         input_file: Path to the input audio file
         output_file: Path to the output text file (optional)
-        model_size: Whisper model size (tiny, base, small, medium, large)
+        model_size: Whisper model size (tiny, base, small, medium, large, large-v2, large-v3)
         language: Language code for transcription
         verbose: Enable verbose output during transcription
+        diarize: Enable speaker diarization
     """
     start_time = datetime.now()
 
@@ -62,7 +67,7 @@ def transcribe_file(input_file, output_file=None, model_size=None, language="en"
         base_name = Path(input_file).stem
         os.makedirs(config.output_folder, exist_ok=True)
         output_file = os.path.join(config.output_folder, f"{base_name}.txt")
-    
+
     # Check if transcription already exists
     if os.path.exists(output_file):
         logger.info(f"Transcription already exists: {output_file}")
@@ -70,59 +75,74 @@ def transcribe_file(input_file, output_file=None, model_size=None, language="en"
         if overwrite != 'y':
             logger.info("Skipping transcription.")
             return False
-    
+
     file_info = get_file_info(input_file)
-    device = config.compute_device
-    logger.info(f"Loading Whisper model: {model_size} on {device}")
+    device = config.whisperx_device
+    logger.info(f"Loading WhisperX model: {model_size} on {device}")
+
+    # Temporarily override config if CLI args differ
+    original_model = config.model_size
+    original_diarize = config.enable_diarization
+    try:
+        if model_size != config.model_size:
+            config.model_size = model_size
+        if diarize and not config.enable_diarization:
+            if not config.hf_token:
+                logger.error(
+                    "Diarization requires HF_TOKEN environment variable. "
+                    "Set it to a HuggingFace token with pyannote/speaker-diarization-3.1 access."
+                )
+                return False
+            config.enable_diarization = True
+
+        load_transcription_model()
+        logger.info(f"Successfully loaded WhisperX model: {model_size} on {device}")
+    except Exception as e:
+        logger.error(f"Failed to load WhisperX model '{model_size}': {e}")
+        return False
+
+    logger.info(f"Starting transcription of '{os.path.basename(input_file)}' ({file_info})")
 
     try:
-        model = whisper.load_model(model_size, device=device)
-        logger.info(f"Successfully loaded Whisper model: {model_size} on {device}")
-    except NotImplementedError as e:
-        # MPS backend doesn't support sparse tensor operations used by Whisper
-        if "SparseMPS" in str(e) and device == "mps":
-            logger.warning(
-                "MPS backend doesn't support sparse tensors for Whisper, "
-                "falling back to CPU"
-            )
-            device = "cpu"
-            model = whisper.load_model(model_size, device=device)
-            logger.info(f"Successfully loaded Whisper model: {model_size} on {device}")
-        else:
-            logger.error(f"Failed to load Whisper model '{model_size}': {e}")
-            return False
-    except Exception as e:
-        logger.error(f"Failed to load Whisper model '{model_size}': {e}")
-        return False
-    
-    logger.info(f"Starting transcription of '{os.path.basename(input_file)}' ({file_info})")
-    
-    try:
-        # Transcribe the audio file
-        result = model.transcribe(
-            input_file,
-            verbose=verbose,
-            language=language if language != "auto" else None
-        )
-        
+        result = whisperx_transcribe(input_file, language=language)
+
+        segments = result["segments"]
+        diarization_applied = result["diarization_applied"]
+        detected_language = result["language"]
+        recognized_speakers = result.get("recognized_speakers", {})
+
+        formatted_text = format_segments_as_text(segments, diarization_applied)
+
+        diarize_info = "disabled"
+        if diarization_applied:
+            speakers = {s.get("speaker") for s in segments if "speaker" in s}
+            diarize_info = f"enabled ({len(speakers)} speakers"
+            if recognized_speakers:
+                names = ", ".join(sorted(recognized_speakers.values()))
+                diarize_info += f", recognized: {names}"
+            diarize_info += ")"
+
         # Create metadata header for the output file
-        metadata = f"# Transcription Metadata\n"
-        metadata += f"# File: {os.path.basename(input_file)}\n"
-        metadata += f"# Size: {file_info}\n"
-        metadata += f"# Model: {model_size}\n"
-        metadata += f"# Transcribed: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        metadata += f"# Duration: {result.get('duration', 'unknown')} seconds\n"
-        metadata += f"# Language: {result.get('language', language)}\n\n"
-        
+        metadata = (
+            f"# Transcription Metadata\n"
+            f"# File: {os.path.basename(input_file)}\n"
+            f"# Size: {file_info}\n"
+            f"# Model: {model_size}\n"
+            f"# Engine: whisperx\n"
+            f"# Diarization: {diarize_info}\n"
+            f"# Transcribed: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"# Language: {detected_language}\n\n"
+        )
+
         # Save the transcribed text with metadata
         with open(output_file, "w", encoding="utf-8") as txt:
             txt.write(metadata)
-            txt.write(result["text"])
-        
+            txt.write(formatted_text)
+
         duration = datetime.now() - start_time
         logger.info(f"Completed '{os.path.basename(input_file)}' in {duration.total_seconds():.1f}s -> '{output_file}'")
         return True
-        
+
     except Exception as e:
         logger.error(f"Failed to transcribe '{input_file}': {e}")
         # Clean up any partial output file
@@ -133,12 +153,15 @@ def transcribe_file(input_file, output_file=None, model_size=None, language="en"
             except Exception as cleanup_error:
                 logger.warning(f"Could not clean up partial file {output_file}: {cleanup_error}")
         return False
+    finally:
+        config.model_size = original_model
+        config.enable_diarization = original_diarize
 
 def main():
     supported_formats = config.supported_audio_formats + config.supported_video_formats
 
     parser = argparse.ArgumentParser(
-        description="Transcribe audio files using OpenAI Whisper",
+        description="Transcribe audio files using WhisperX",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
 Supported audio formats: {', '.join(supported_formats)}
@@ -146,14 +169,17 @@ Supported audio formats: {', '.join(supported_formats)}
 Environment variables:
   TRANSCRIBE_OUTPUT_FOLDER  Output directory (default: ./transcribed)
   WHISPER_MODEL_SIZE        Default model size (default: large)
+  HF_TOKEN                  HuggingFace token (required for --diarize)
 
 Examples:
   %(prog)s audio.mp3                    # Transcribe to ./transcribed/audio.txt
   %(prog)s audio.mp3 -o transcript.txt  # Transcribe to specific file
   %(prog)s audio.mp3 -m base            # Use base model (faster, less accurate)
+  %(prog)s audio.mp3 -m large-v2        # Use large-v2 model
   %(prog)s audio.mp3 -l es              # Transcribe Spanish audio
   %(prog)s audio.mp3 -l auto            # Auto-detect language
   %(prog)s audio.mp3 -v                 # Show detailed progress
+  %(prog)s audio.mp3 --diarize          # Enable speaker diarization
 
 For batch processing with file watching, use transcribe_all.py
         """
@@ -171,7 +197,7 @@ For batch processing with file watching, use transcribe_all.py
     parser.add_argument(
         "-m", "--model",
         help=f"Whisper model size (default: {config.model_size})",
-        choices=["tiny", "base", "small", "medium", "large"],
+        choices=["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"],
         default=None
     )
     parser.add_argument(
@@ -184,23 +210,25 @@ For batch processing with file watching, use transcribe_all.py
         help="Enable verbose output during transcription",
         action="store_true"
     )
-    
+    parser.add_argument(
+        "--diarize",
+        help="Enable speaker diarization (requires HF_TOKEN env var)",
+        action="store_true"
+    )
+
     args = parser.parse_args()
-    
+
     # Run transcription
     success = transcribe_file(
         args.input_file,
         args.output,
         args.model,
         args.language,
-        args.verbose
+        args.verbose,
+        args.diarize,
     )
-    
+
     sys.exit(0 if success else 1)
 
 if __name__ == "__main__":
-    # If no arguments provided, show help
-    if len(sys.argv) == 1:
-        main()
-    else:
-        main()
+    main()

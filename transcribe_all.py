@@ -1,13 +1,17 @@
 import logging
 import os
-import re
 import subprocess
 import time
 from datetime import datetime
-from pathlib import Path
 
-import whisper
 from config import config
+from reprocess_transcriptions import extract_summary_from_content
+from whisperx_pipeline import (
+    format_segments_as_text,
+    load_transcription_model,
+    strip_formatting_for_summary,
+    transcribe as whisperx_transcribe,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -29,25 +33,11 @@ logger.info(
 logger.info(f"Skipping files created before: {config.skip_files_before_date}")
 logger.info(f"File stability window: {config.stability_window}s (files must be unchanged before processing)")
 
-# Load Whisper model
+# Load WhisperX model
 try:
-    device = config.compute_device
-    model = whisper.load_model(config.model_size, device=device)
-    logger.info(f"Successfully loaded Whisper model: {config.model_size} on {device}")
-except NotImplementedError as e:
-    # MPS backend doesn't support sparse tensor operations used by Whisper
-    if "SparseMPS" in str(e) and device == "mps":
-        logger.warning(
-            "MPS backend doesn't support sparse tensors for Whisper, falling back to CPU"
-        )
-        device = "cpu"
-        model = whisper.load_model(config.model_size, device=device)
-        logger.info(f"Successfully loaded Whisper model: {config.model_size} on {device}")
-    else:
-        logger.error(f"Failed to load Whisper model '{config.model_size}': {e}")
-        raise
+    load_transcription_model()
 except Exception as e:
-    logger.error(f"Failed to load Whisper model '{config.model_size}': {e}")
+    logger.error(f"Failed to load WhisperX model '{config.model_size}': {e}")
     raise
 
 
@@ -128,6 +118,45 @@ def create_error_file(output_file, input_file, error_msg):
         logger.info(f"Created error file: {error_file}")
     except Exception as e:
         logger.error(f"Failed to create error file: {e}")
+
+
+def rename_with_summary(output_file: str) -> str:
+    """Rename transcript file with content summary. Returns final path."""
+    if not config.auto_rename:
+        return output_file
+
+    try:
+        with open(output_file, "r", encoding="utf-8") as f:
+            full_text = f.read()
+
+        content = strip_formatting_for_summary(full_text)
+
+        summary = extract_summary_from_content(content)
+        if not summary:
+            logger.info(f"No summary generated for '{os.path.basename(output_file)}', keeping original name")
+            return output_file
+
+        # Build new filename: <base> - <summary>.txt
+        directory = os.path.dirname(output_file)
+        base_name = os.path.splitext(os.path.basename(output_file))[0]
+        new_name = f"{base_name} - {summary}.txt"
+        new_path = os.path.join(directory, new_name)
+
+        os.rename(output_file, new_path)
+        logger.info(f"Renamed transcript: '{os.path.basename(output_file)}' → '{new_name}'")
+
+        # Create symlink from original name to renamed file so skip-checks still work
+        try:
+            os.symlink(new_name, output_file)
+            logger.debug(f"Created symlink: '{os.path.basename(output_file)}' → '{new_name}'")
+        except OSError as e:
+            logger.warning(f"Could not create symlink for '{os.path.basename(output_file)}': {e}")
+
+        return new_path
+
+    except Exception as e:
+        logger.warning(f"Failed to rename transcript with summary: {e}")
+        return output_file
 
 
 def repair_audio_file(input_file):
@@ -241,34 +270,40 @@ def transcribe_file(input_file, retry_count=0, max_retries=None):
         )
 
     try:
-        # Try with different parameters if retrying
-        if retry_count > 0:
-            # Use smaller chunk size and different decoding options for problematic files
-            result = model.transcribe(
-                input_file,
-                verbose=False,
-                language="en",
-                fp16=False,  # Explicitly disable FP16
-                condition_on_previous_text=False,  # Reduce memory usage
-                temperature=0.0,  # Use greedy decoding
-            )
-        else:
-            result = model.transcribe(
-                input_file, verbose=False, language="en", fp16=False
-            )
+        result = whisperx_transcribe(input_file, language="en")
+
+        segments = result["segments"]
+        diarization_applied = result["diarization_applied"]
+        detected_language = result["language"]
+        recognized_speakers = result.get("recognized_speakers", {})
+
+        formatted_text = format_segments_as_text(segments, diarization_applied)
+
+        diarize_info = "disabled"
+        if diarization_applied:
+            speakers = {s.get("speaker") for s in segments if "speaker" in s}
+            diarize_info = f"enabled ({len(speakers)} speakers"
+            if recognized_speakers:
+                names = ", ".join(sorted(recognized_speakers.values()))
+                diarize_info += f", recognized: {names}"
+            diarize_info += ")"
 
         metadata = (
             f"# Transcription Metadata\n"
             f"# File: {os.path.basename(input_file)}\n"
             f"# Size: {file_info}\n"
             f"# Model: {config.model_size}\n"
+            f"# Engine: whisperx\n"
+            f"# Diarization: {diarize_info}\n"
             f"# Transcribed: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"# Duration: {result.get('duration', 'unknown')} seconds\n"
-            f"# Language: {result.get('language', 'en')}\n\n"
+            f"# Language: {detected_language}\n\n"
         )
         with open(output_file, "w", encoding="utf-8") as txt:
             txt.write(metadata)
-            txt.write(result["text"])
+            txt.write(formatted_text)
+
+        # Rename with content summary (returns new path or original if unchanged)
+        output_file = rename_with_summary(output_file)
 
         duration = datetime.now() - start_time
         logger.info(
