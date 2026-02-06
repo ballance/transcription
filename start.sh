@@ -6,6 +6,13 @@ cd "$SCRIPT_DIR"
 
 source .venv/bin/activate
 
+# Load .env file if present
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
 # Start the progress dashboard in the background
 echo "Starting progress dashboard on http://localhost:${DASHBOARD_PORT:-8890}"
 python ./progress_dashboard.py &

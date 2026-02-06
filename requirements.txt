@@ -4,7 +4,7 @@ uvicorn>=0.24.0
 python-multipart>=0.0.6
 
 # Transcription engine
-git+https://github.com/openai/whisper.git
+whisperx>=3.1.1
 
 # Async processing
 celery>=5.3.4
