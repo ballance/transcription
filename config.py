@@ -7,7 +7,7 @@ All configuration is managed through environment variables with sensible default
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 
@@ -26,10 +26,10 @@ class TranscriptionConfig:
     # Diarization settings
     enable_diarization: bool = os.getenv("WHISPER_DIARIZATION", "false").lower() == "true"
     hf_token: str = os.getenv("HF_TOKEN", "")
-    min_speakers: int | None = field(
+    min_speakers: Optional[int] = field(
         default_factory=lambda: int(v) if (v := os.getenv("DIARIZATION_MIN_SPEAKERS")) else None
     )
-    max_speakers: int | None = field(
+    max_speakers: Optional[int] = field(
         default_factory=lambda: int(v) if (v := os.getenv("DIARIZATION_MAX_SPEAKERS")) else None
     )
 
