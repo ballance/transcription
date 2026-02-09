@@ -27,6 +27,7 @@ from config import config
 from speaker_profiles import (
     SpeakerProfile,
     extract_embedding_from_audio,
+    load_all_profiles,
     load_profiles,
     save_profiles,
 )
@@ -104,7 +105,7 @@ def cmd_record(args):
     name = args.name
     duration = args.duration
     num_samples = args.samples
-    profiles_path = config.speaker_profiles_path
+    profiles_path = config.speaker_profiles_local_path
 
     if not config.hf_token:
         logger.error(
@@ -113,16 +114,19 @@ def cmd_record(args):
         )
         sys.exit(1)
 
-    profiles = load_profiles(profiles_path)
+    all_profiles = load_all_profiles(
+        config.speaker_profiles_path, config.speaker_profiles_local_path
+    )
+    local_profiles = load_profiles(profiles_path)
 
-    if name in profiles:
-        print(f"Profile '{name}' already exists with {profiles[name].sample_count} sample(s).")
+    if name in all_profiles:
+        print(f"Profile '{name}' already exists with {all_profiles[name].sample_count} sample(s).")
         answer = input("Add more samples? (y/N): ").strip().lower()
         if answer != "y":
             print("Aborted.")
             return
 
-    profile = profiles.get(name, SpeakerProfile(name=name))
+    profile = all_profiles.get(name, SpeakerProfile(name=name))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         for i in range(num_samples):
@@ -144,8 +148,8 @@ def cmd_record(args):
                 logger.error(f"Failed to extract embedding from sample {i + 1}: {e}")
 
     if profile.sample_count > 0:
-        profiles[name] = profile
-        save_profiles(profiles, profiles_path)
+        local_profiles[name] = profile
+        save_profiles(local_profiles, profiles_path)
         print(f"\nEnrolled '{name}' with {profile.sample_count} sample(s).")
     else:
         print(f"\nNo samples were enrolled for '{name}'.")
@@ -155,7 +159,7 @@ def cmd_enroll(args):
     """Enroll a speaker from existing audio files."""
     name = args.name
     files = args.files
-    profiles_path = config.speaker_profiles_path
+    profiles_path = config.speaker_profiles_local_path
 
     if not config.hf_token:
         logger.error(
@@ -164,16 +168,19 @@ def cmd_enroll(args):
         )
         sys.exit(1)
 
-    profiles = load_profiles(profiles_path)
+    all_profiles = load_all_profiles(
+        config.speaker_profiles_path, config.speaker_profiles_local_path
+    )
+    local_profiles = load_profiles(profiles_path)
 
-    if name in profiles:
-        print(f"Profile '{name}' already exists with {profiles[name].sample_count} sample(s).")
+    if name in all_profiles:
+        print(f"Profile '{name}' already exists with {all_profiles[name].sample_count} sample(s).")
         answer = input("Add more samples? (y/N): ").strip().lower()
         if answer != "y":
             print("Aborted.")
             return
 
-    profile = profiles.get(name, SpeakerProfile(name=name))
+    profile = all_profiles.get(name, SpeakerProfile(name=name))
 
     for audio_file in files:
         if not os.path.isfile(audio_file):
@@ -191,8 +198,8 @@ def cmd_enroll(args):
             logger.error(f"Failed to extract embedding from '{audio_file}': {e}")
 
     if profile.sample_count > 0:
-        profiles[name] = profile
-        save_profiles(profiles, profiles_path)
+        local_profiles[name] = profile
+        save_profiles(local_profiles, profiles_path)
         print(f"\nEnrolled '{name}' with {profile.sample_count} total sample(s).")
     else:
         print(f"\nNo samples were enrolled for '{name}'.")
@@ -200,18 +207,20 @@ def cmd_enroll(args):
 
 def cmd_list(args):
     """List all enrolled speaker profiles."""
-    profiles_path = config.speaker_profiles_path
-    profiles = load_profiles(profiles_path)
+    main_profiles = load_profiles(config.speaker_profiles_path)
+    local_profiles = load_profiles(config.speaker_profiles_local_path)
+    all_profiles = {**main_profiles, **local_profiles}
 
-    if not profiles:
+    if not all_profiles:
         print("No speaker profiles enrolled.")
         print(f"  Use: python enroll_speaker.py record <name>")
         print(f"  Or:  python enroll_speaker.py enroll <name> <audio_file>")
         return
 
-    print(f"Enrolled speakers ({len(profiles)}):\n")
-    for name, profile in sorted(profiles.items()):
-        print(f"  {profile.name}")
+    print(f"Enrolled speakers ({len(all_profiles)}):\n")
+    for name, profile in sorted(all_profiles.items()):
+        source = "local" if name in local_profiles else "shared"
+        print(f"  {profile.name}  ({source})")
         print(f"    Samples:  {profile.sample_count}")
         print(f"    Created:  {profile.created_at}")
         print(f"    Updated:  {profile.updated_at}")
@@ -221,12 +230,19 @@ def cmd_list(args):
 def cmd_remove(args):
     """Remove a speaker profile."""
     name = args.name
-    profiles_path = config.speaker_profiles_path
-    profiles = load_profiles(profiles_path)
+    main_profiles = load_profiles(config.speaker_profiles_path)
+    local_profiles = load_profiles(config.speaker_profiles_local_path)
 
-    if name not in profiles:
+    if name in local_profiles:
+        profiles_path = config.speaker_profiles_local_path
+        profiles = local_profiles
+    elif name in main_profiles:
+        profiles_path = config.speaker_profiles_path
+        profiles = main_profiles
+    else:
+        all_names = set(main_profiles) | set(local_profiles)
         print(f"No profile found for '{name}'.")
-        print(f"Available profiles: {', '.join(profiles.keys()) or '(none)'}")
+        print(f"Available profiles: {', '.join(sorted(all_names)) or '(none)'}")
         return
 
     answer = input(f"Remove profile '{name}'? (y/N): ").strip().lower()

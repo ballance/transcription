@@ -89,6 +89,22 @@ def load_profiles(path: str) -> dict[str, SpeakerProfile]:
     return profiles
 
 
+def load_all_profiles(path: str, local_path: str) -> dict[str, SpeakerProfile]:
+    """Load and merge speaker profiles from the main and local files.
+
+    The local file (git-ignored) holds other people's voice embeddings.
+    If both files contain the same speaker name, the local version wins.
+    """
+    profiles = load_profiles(path)
+    local_profiles = load_profiles(local_path)
+    profiles.update(local_profiles)
+    if local_profiles:
+        logger.info(
+            f"Merged {len(local_profiles)} local profile(s) from {local_path}"
+        )
+    return profiles
+
+
 def save_profiles(profiles: dict[str, SpeakerProfile], path: str):
     """Save speaker profiles to a JSON file."""
     data = {}

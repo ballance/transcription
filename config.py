@@ -35,6 +35,7 @@ class TranscriptionConfig:
 
     # Speaker recognition settings
     speaker_profiles_path: str = os.getenv("SPEAKER_PROFILES_PATH", "./speaker_profiles.json")
+    speaker_profiles_local_path: str = os.getenv("SPEAKER_PROFILES_LOCAL_PATH", "./speaker_profiles.local.json")
     speaker_recognition_threshold: float = float(os.getenv("SPEAKER_RECOGNITION_THRESHOLD", "0.55"))
     enable_speaker_recognition: bool = os.getenv("SPEAKER_RECOGNITION", "false").lower() == "true"
 

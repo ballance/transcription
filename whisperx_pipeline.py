@@ -28,7 +28,7 @@ import whisperx
 from whisperx.diarize import DiarizationPipeline
 
 from config import config
-from speaker_profiles import load_profiles, match_speakers
+from speaker_profiles import load_all_profiles, match_speakers
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +165,10 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
             # Speaker recognition: match embeddings to enrolled profiles
             if config.enable_speaker_recognition and speaker_embeddings:
                 try:
-                    profiles = load_profiles(config.speaker_profiles_path)
+                    profiles = load_all_profiles(
+                        config.speaker_profiles_path,
+                        config.speaker_profiles_local_path,
+                    )
                     if profiles:
                         recognized_speakers = match_speakers(
                             speaker_embeddings,
