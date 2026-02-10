@@ -95,28 +95,54 @@ def get_transcription_status():
                     "duration": duration,
                 })
 
-    # Try to read current progress from log file
-    log_file = "transcription.log"
-    if os.path.exists(log_file):
+    # Try to read current progress from progress.json
+    progress_file = Path(__file__).parent / "progress.json"
+    if progress_file.exists():
         try:
-            with open(log_file, "r") as lf:
-                lines = lf.readlines()[-50:]  # Last 50 lines
+            with open(progress_file, "r") as pf:
+                progress_data = json.load(pf)
 
-            for line in reversed(lines):
-                if "Starting transcription of" in line:
-                    match = re.search(r"Starting transcription of '([^']+)'", line)
-                    if match:
-                        status["in_progress"] = {
-                            "file": match.group(1),
-                            "started": line[:19],  # Timestamp
-                            "percent": 0,
-                        }
-                    break
-                elif "Completed '" in line:
-                    # Last action was a completion, nothing in progress
-                    break
-        except:
+            if progress_data.get("file_name") and progress_data.get("stage") != "idle":
+                status["in_progress"] = {
+                    "file": progress_data.get("file_name", ""),
+                    "file_size_mb": progress_data.get("file_size_mb", 0),
+                    "stage": progress_data.get("stage", ""),
+                    "stage_display": progress_data.get("stage_display", ""),
+                    "started": progress_data.get("started_at", "")[:19] if progress_data.get("started_at") else "",
+                    "elapsed_seconds": progress_data.get("elapsed_seconds", 0),
+                    "stage_elapsed_seconds": progress_data.get("stage_elapsed_seconds", 0),
+                    "stages_completed": progress_data.get("stages_completed", []),
+                    "error": progress_data.get("error"),
+                }
+        except Exception:
             pass
+
+    # Fallback to log file if no progress.json
+    if status["in_progress"] is None:
+        log_file = "transcription.log"
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, "r") as lf:
+                    lines = lf.readlines()[-50:]  # Last 50 lines
+
+                for line in reversed(lines):
+                    if "Starting transcription of" in line:
+                        match = re.search(r"Starting transcription of '([^']+)'", line)
+                        if match:
+                            status["in_progress"] = {
+                                "file": match.group(1),
+                                "started": line[:19],  # Timestamp
+                                "stage": "unknown",
+                                "stage_display": "Processing",
+                                "elapsed_seconds": 0,
+                                "stages_completed": [],
+                            }
+                        break
+                    elif "Completed '" in line:
+                        # Last action was a completion, nothing in progress
+                        break
+            except Exception:
+                pass
 
     return status
 
@@ -226,7 +252,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div id="current-progress" class="card in-progress" style="display: none; margin-bottom: 20px;">
             <h3>Currently Processing</h3>
             <div id="current-file"></div>
-            <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+            <div id="stage-progress" style="margin: 15px 0;"></div>
             <div id="progress-text" style="text-align: center; color: #888;"></div>
         </div>
 
@@ -295,10 +321,49 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const progressCard = document.getElementById('current-progress');
             if (data.in_progress) {
                 progressCard.style.display = 'block';
-                document.getElementById('current-file').textContent = data.in_progress.file;
-                document.getElementById('progress-fill').style.width = data.in_progress.percent + '%';
-                document.getElementById('progress-text').textContent =
-                    `Started: ${data.in_progress.started}`;
+                const p = data.in_progress;
+                const fileSizeStr = p.file_size_mb ? ` (${p.file_size_mb.toFixed(1)} MB)` : '';
+                document.getElementById('current-file').innerHTML =
+                    `<strong>${p.file}</strong><span style="color: #888;">${fileSizeStr}</span>`;
+
+                // Build stage progress display
+                const stages = ['loading', 'transcribing', 'aligning', 'diarizing', 'saving'];
+                const stageNames = {
+                    loading: 'Loading audio',
+                    transcribing: 'Transcribing',
+                    aligning: 'Aligning words',
+                    diarizing: 'Identifying speakers',
+                    saving: 'Saving output'
+                };
+                const completed = p.stages_completed || [];
+                let stageHtml = '<div style="display: flex; gap: 8px; flex-wrap: wrap;">';
+                stages.forEach(stage => {
+                    let style = 'padding: 4px 10px; border-radius: 4px; font-size: 12px; ';
+                    let icon = '';
+                    if (completed.includes(stage)) {
+                        style += 'background: #00c853; color: #000;';
+                        icon = '\u2713 ';
+                    } else if (p.stage === stage) {
+                        style += 'background: #2196f3; color: #fff; animation: pulse 1s infinite;';
+                        icon = '\u25cf ';
+                    } else {
+                        style += 'background: #333; color: #666;';
+                    }
+                    stageHtml += `<span style="${style}">${icon}${stageNames[stage]}</span>`;
+                });
+                stageHtml += '</div>';
+                document.getElementById('stage-progress').innerHTML = stageHtml;
+
+                const elapsed = p.elapsed_seconds ? p.elapsed_seconds.toFixed(1) : '0';
+                const stageTime = p.stage_elapsed_seconds ? p.stage_elapsed_seconds.toFixed(1) : '0';
+                let progressText = `Total: ${elapsed}s`;
+                if (p.stage_display && p.stage !== 'idle') {
+                    progressText += ` | ${p.stage_display}: ${stageTime}s`;
+                }
+                if (p.error) {
+                    progressText += `<br><span style="color: #f44336;">Error: ${p.error}</span>`;
+                }
+                document.getElementById('progress-text').innerHTML = progressText;
             } else {
                 progressCard.style.display = 'none';
             }

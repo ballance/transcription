@@ -13,6 +13,7 @@ Options:
     --execute          Actually perform changes (default is dry-run)
     --repetition-only  Only reprocess files with repetition artifacts
 """
+from __future__ import annotations
 
 import argparse
 import logging
@@ -22,6 +23,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 from config import config
 
