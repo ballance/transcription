@@ -4,6 +4,7 @@ import subprocess
 import time
 from datetime import datetime
 
+import progress as prog
 from config import config
 from reprocess_transcriptions import extract_summary_from_content
 from whisperx_pipeline import (
@@ -32,6 +33,7 @@ logger.info(
 )
 logger.info(f"Skipping files created before: {config.skip_files_before_date}")
 logger.info(f"File stability window: {config.stability_window}s (files must be unchanged before processing)")
+logger.info(f"Prioritize recent files: {config.prioritize_recent}")
 
 # Load WhisperX model
 try:
@@ -264,6 +266,7 @@ def transcribe_file(input_file, retry_count=0, max_retries=None):
         logger.info(
             f"Starting transcription of '{os.path.basename(input_file)}' ({file_info})"
         )
+        prog.start_file(input_file)
     else:
         logger.info(
             f"Retrying transcription of '{os.path.basename(input_file)}' (attempt {retry_count + 1}/{max_retries + 1})"
@@ -309,6 +312,7 @@ def transcribe_file(input_file, retry_count=0, max_retries=None):
         logger.info(
             f"Completed '{os.path.basename(input_file)}' in {duration.total_seconds():.1f}s → '{os.path.basename(output_file)}'"
         )
+        prog.finish_file()
 
     except RuntimeError as e:
         error_msg = str(e)
@@ -334,6 +338,7 @@ def transcribe_file(input_file, retry_count=0, max_retries=None):
                 logger.error(
                     f"Failed to transcribe '{input_file}' after {max_retries} retries: {e}"
                 )
+                prog.set_error(str(e))
                 create_error_file(output_file, input_file, error_msg)
         else:
             logger.error(f"Failed to transcribe '{input_file}': {e}")
@@ -402,31 +407,43 @@ def scan_folder():
     Files must be stable (unchanged) for the configured stability_window
     before they will be processed. This prevents processing files that
     are still being written.
+
+    When prioritize_recent is enabled, files are sorted by modification time
+    (newest first) before processing.
     """
     seen_files: set[str] = set()
+    candidate_files: list[str] = []
 
     try:
-        # Scan video folder for video files
+        # Collect video files
         if os.path.exists(config.video_folder):
             for file_name in os.listdir(config.video_folder):
                 if file_name.lower().endswith(config.supported_video_formats):
                     file_path = os.path.join(config.video_folder, file_name)
                     seen_files.add(file_path)
                     if is_file_stable(file_path):
-                        process_file(file_path)
+                        candidate_files.append(file_path)
         else:
             logger.warning(f"Video folder does not exist: {config.video_folder}")
 
-        # Scan audio folder for audio files
+        # Collect audio files
         if os.path.exists(config.audio_folder):
             for file_name in os.listdir(config.audio_folder):
                 if file_name.lower().endswith(config.supported_audio_formats):
                     file_path = os.path.join(config.audio_folder, file_name)
                     seen_files.add(file_path)
                     if is_file_stable(file_path):
-                        process_file(file_path)
+                        candidate_files.append(file_path)
         else:
             logger.warning(f"Audio folder does not exist: {config.audio_folder}")
+
+        # Sort by modification time (newest first) if enabled
+        if config.prioritize_recent and candidate_files:
+            candidate_files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+
+        # Process files
+        for file_path in candidate_files:
+            process_file(file_path)
 
         # Clean up tracker entries for files that no longer exist
         cleanup_stability_tracker(seen_files)
@@ -446,11 +463,13 @@ if __name__ == "__main__":
     )
 
     try:
-        while True:
-            scan_folder()
-            time.sleep(config.scan_interval)
+        with prog.progress_display():
+            while True:
+                scan_folder()
+                time.sleep(config.scan_interval)
     except KeyboardInterrupt:
         logger.info("Transcription service stopped by user.")
+        prog.clear_progress()
     except Exception as e:
         logger.error(f"Unexpected error in main loop: {e}")
         raise

@@ -17,7 +17,7 @@ class TranscriptionConfig:
     """Configuration for transcription services."""
 
     # Model settings
-    model_size: str = os.getenv("WHISPER_MODEL_SIZE", "large")
+    model_size: str = field(default_factory=lambda: os.getenv("WHISPER_MODEL_SIZE", "large-v3"))
     fp16: bool = os.getenv("WHISPER_FP16", "false").lower() == "true"
     device: str = field(default_factory=lambda: os.getenv("WHISPER_DEVICE", "auto"))
     compute_type: str = os.getenv("WHISPER_COMPUTE_TYPE", "auto")
@@ -54,6 +54,9 @@ class TranscriptionConfig:
 
     # Auto-rename transcripts with content summary
     auto_rename: bool = os.getenv("TRANSCRIBE_AUTO_RENAME", "true").lower() == "true"
+
+    # Prioritize recent files (newest first) when processing
+    prioritize_recent: bool = os.getenv("PRIORITIZE_RECENT", "true").lower() == "true"
 
     # API settings
     max_upload_size_mb: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "500"))

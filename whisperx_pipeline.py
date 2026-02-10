@@ -12,6 +12,8 @@ import re
 import functools
 import torch
 
+import progress as prog
+
 # PyTorch 2.6+ defaults to weights_only=True in torch.load, but pyannote
 # model checkpoints contain omegaconf/typing objects that aren't allowlisted.
 # Patch torch.load to default to weights_only=False for these trusted models.
@@ -107,7 +109,10 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
     device = config.whisperx_device
 
     # Stage 1: Transcribe
+    prog.set_stage("loading")
     audio = whisperx.load_audio(audio_path)
+
+    prog.set_stage("transcribing")
     result = model.transcribe(
         audio,
         batch_size=config.resolved_batch_size,
@@ -118,6 +123,7 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
     segments = result.get("segments", [])
 
     # Stage 2: Align (for word-level timestamps)
+    prog.set_stage("aligning")
     try:
         align_model, align_metadata = _load_align_model(detected_language)
         result = whisperx.align(
@@ -136,6 +142,7 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
     diarization_applied = False
     recognized_speakers = {}
     if config.enable_diarization and config.hf_token:
+        prog.set_stage("diarizing")
         try:
             diarize_pipeline = _load_diarize_pipeline()
             diarize_kwargs = {}
@@ -199,6 +206,7 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
         except Exception as e:
             logger.warning(f"Diarization failed (continuing without speaker labels): {e}")
 
+    prog.set_stage("saving")
     return {
         "segments": segments,
         "language": detected_language,
