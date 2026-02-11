@@ -437,9 +437,15 @@ def scan_folder():
         else:
             logger.warning(f"Audio folder does not exist: {config.audio_folder}")
 
-        # Sort by modification time (newest first) if enabled
-        if config.prioritize_recent and candidate_files:
-            candidate_files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+        # Sort files: PRIORITY files first, then by modification time (newest first) if enabled
+        if candidate_files:
+            def sort_key(f: str) -> tuple:
+                filename = os.path.basename(f).upper()
+                is_priority = 0 if "PRIORITY" in filename else 1
+                mtime = -os.path.getmtime(f) if config.prioritize_recent else 0
+                return (is_priority, mtime)
+
+            candidate_files.sort(key=sort_key)
 
         # Process files
         for file_path in candidate_files:
