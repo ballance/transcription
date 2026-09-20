@@ -201,3 +201,6 @@ speaker_profiles.local.json
 
 # Downloaded model weights (symlinks into the HuggingFace cache; machine-specific)
 models/
+
+# Runtime transcription status
+progress.json
