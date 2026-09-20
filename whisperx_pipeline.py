@@ -39,6 +39,31 @@ _whisperx_model = None
 _align_model_cache: dict[str, tuple] = {}  # language → (model, metadata)
 _diarize_pipeline = None
 
+# PyTorch stages (align/diarize) can use the Apple GPU via MPS, unlike WhisperX's
+# CTranslate2 backend. Start on the resolved device; on an MPS op failure, latch to
+# CPU for the rest of the process (MPS has occasional gaps in older torch builds).
+_torch_device_override = None  # str | None: latched to "cpu" after an MPS failure
+
+
+def _torch_device() -> str:
+    """Device for the PyTorch align/diarize stages (mps/cuda/cpu, or latched CPU fallback)."""
+    return _torch_device_override or config.compute_device
+
+
+def _with_mps_fallback(stage: str, fn):
+    """Run fn(); if it fails on MPS, latch to CPU (clearing caches) and retry once."""
+    global _torch_device_override, _align_model_cache, _diarize_pipeline
+    try:
+        return fn()
+    except Exception as e:
+        if _torch_device() != "mps":
+            raise
+        logger.warning(f"{stage} failed on MPS ({e}); latching to CPU and retrying")
+        _torch_device_override = "cpu"
+        _align_model_cache = {}
+        _diarize_pipeline = None
+        return fn()
+
 
 def load_transcription_model():
     """Load and cache the WhisperX transcription model."""
@@ -70,8 +95,8 @@ def _load_align_model(language_code: str):
     if language_code in _align_model_cache:
         return _align_model_cache[language_code]
 
-    device = config.whisperx_device
-    logger.info(f"Loading alignment model for language: {language_code}")
+    device = _torch_device()
+    logger.info(f"Loading alignment model for language: {language_code} on {device}")
 
     model, metadata = whisperx.load_align_model(
         language_code=language_code,
@@ -88,10 +113,11 @@ def _load_diarize_pipeline():
     if _diarize_pipeline is not None:
         return _diarize_pipeline
 
-    logger.info("Loading diarization pipeline")
+    device = _torch_device()
+    logger.info(f"Loading diarization pipeline on {device}")
     _diarize_pipeline = DiarizationPipeline(
         use_auth_token=config.hf_token,
-        device=config.whisperx_device,
+        device=device,
     )
     return _diarize_pipeline
 
@@ -106,7 +132,6 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
         - "diarization_applied": bool
     """
     model = load_transcription_model()
-    device = config.whisperx_device
 
     # Stage 1: Transcribe
     prog.set_stage("loading")
@@ -124,15 +149,19 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
 
     # Stage 2: Align (for word-level timestamps)
     prog.set_stage("aligning")
-    try:
+
+    def _align():
         align_model, align_metadata = _load_align_model(detected_language)
-        result = whisperx.align(
+        return whisperx.align(
             segments,
             align_model,
             align_metadata,
             audio,
-            device=device,
+            device=_torch_device(),
         )
+
+    try:
+        result = _with_mps_fallback("Alignment", _align)
         segments = result.get("segments", segments)
         logger.info(f"Alignment succeeded for {len(segments)} segments")
     except Exception as e:
@@ -144,7 +173,6 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
     if config.enable_diarization and config.hf_token:
         prog.set_stage("diarizing")
         try:
-            diarize_pipeline = _load_diarize_pipeline()
             diarize_kwargs = {}
             if config.min_speakers is not None:
                 diarize_kwargs["min_speakers"] = config.min_speakers
@@ -155,7 +183,10 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
             if config.enable_speaker_recognition:
                 diarize_kwargs["return_embeddings"] = True
 
-            diarize_result = diarize_pipeline(audio_path, **diarize_kwargs)
+            diarize_result = _with_mps_fallback(
+                "Diarization",
+                lambda: _load_diarize_pipeline()(audio_path, **diarize_kwargs),
+            )
 
             # Handle return_embeddings=True returning a tuple
             speaker_embeddings = {}
@@ -233,7 +264,6 @@ def transcribe_multilingual(audio_path: str, languages: list[str]) -> dict:
         raise ValueError("languages must be a non-empty list (e.g. ['en', 'es'])")
 
     model = load_transcription_model()
-    device = config.whisperx_device
     sample_rate = 16000
 
     prog.set_stage("loading")
@@ -271,10 +301,13 @@ def transcribe_multilingual(audio_path: str, languages: list[str]) -> dict:
             continue
 
         try:
-            align_model, align_meta = _load_align_model(region.language)
-            aligned = whisperx.align(
-                sub_segments, align_model, align_meta, sub_audio, device=device,
-            )
+            def _align_region(region=region, sub_segments=sub_segments, sub_audio=sub_audio):
+                align_model, align_meta = _load_align_model(region.language)
+                return whisperx.align(
+                    sub_segments, align_model, align_meta, sub_audio, device=_torch_device(),
+                )
+
+            aligned = _with_mps_fallback("Alignment", _align_region)
             sub_segments = aligned.get("segments", sub_segments)
         except Exception as e:
             logger.warning(
@@ -304,7 +337,6 @@ def transcribe_multilingual(audio_path: str, languages: list[str]) -> dict:
     if config.enable_diarization and config.hf_token:
         prog.set_stage("diarizing")
         try:
-            diarize_pipeline = _load_diarize_pipeline()
             diarize_kwargs = {}
             if config.min_speakers is not None:
                 diarize_kwargs["min_speakers"] = config.min_speakers
@@ -313,7 +345,10 @@ def transcribe_multilingual(audio_path: str, languages: list[str]) -> dict:
             if config.enable_speaker_recognition:
                 diarize_kwargs["return_embeddings"] = True
 
-            diarize_result = diarize_pipeline(audio_path, **diarize_kwargs)
+            diarize_result = _with_mps_fallback(
+                "Diarization",
+                lambda: _load_diarize_pipeline()(audio_path, **diarize_kwargs),
+            )
 
             speaker_embeddings = {}
             if isinstance(diarize_result, tuple) and len(diarize_result) == 2:

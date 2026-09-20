@@ -165,10 +165,14 @@ class TranscriptionConfig:
 
     @property
     def resolved_batch_size(self) -> int:
-        """Get batch size, auto-selecting based on device if not explicitly set."""
+        """Get batch size, auto-selecting based on device if not explicitly set.
+
+        CPU default is tuned for Apple Silicon / high-core machines (int8 CTranslate2
+        parallelizes across cores); override with WHISPERX_BATCH_SIZE if memory-constrained.
+        """
         if self.batch_size > 0:
             return self.batch_size
-        return 16 if self.whisperx_device == "cuda" else 4
+        return 16
 
 
 # Global configuration instance
