@@ -29,11 +29,15 @@ PROGRESS_FILE = Path(__file__).parent / "progress.json"
 STAGES = {
     "idle": ("Idle", 0),
     "loading": ("Loading audio", 5),
+    "language_id": ("Identifying languages", 5),
     "transcribing": ("Transcribing", 70),
     "aligning": ("Aligning words", 10),
     "diarizing": ("Identifying speakers", 15),
     "saving": ("Saving output", 0),
 }
+
+# Ordered list for progress calculation
+STAGE_ORDER = ["loading", "transcribing", "aligning", "diarizing", "saving"]
 
 
 @dataclass
@@ -50,9 +54,25 @@ class ProgressState:
     stage_elapsed_seconds: float = 0.0
     stages_completed: list[str] = field(default_factory=list)
     error: Optional[str] = None
+    progress_percent: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def _calculate_progress_percent(stages_completed: list[str], current_stage: str) -> float:
+    """Calculate overall progress percentage based on completed stages."""
+    total_weight = sum(STAGES[s][1] for s in STAGE_ORDER)
+    if total_weight == 0:
+        return 0.0
+
+    completed_weight = sum(STAGES[s][1] for s in stages_completed if s in STAGES)
+
+    # Add partial credit for current stage (assume 50% through)
+    if current_stage in STAGES and current_stage not in stages_completed:
+        completed_weight += STAGES[current_stage][1] * 0.5
+
+    return min(100.0, (completed_weight / total_weight) * 100)
 
 
 # Global state
@@ -71,7 +91,7 @@ def _write_progress_file():
 
 
 def _update_elapsed():
-    """Update elapsed time fields."""
+    """Update elapsed time fields and progress percentage."""
     if _current_progress.started_at:
         start = datetime.fromisoformat(_current_progress.started_at)
         _current_progress.elapsed_seconds = (datetime.now() - start).total_seconds()
@@ -79,6 +99,10 @@ def _update_elapsed():
     if _current_progress.stage_started_at:
         stage_start = datetime.fromisoformat(_current_progress.stage_started_at)
         _current_progress.stage_elapsed_seconds = (datetime.now() - stage_start).total_seconds()
+
+    _current_progress.progress_percent = _calculate_progress_percent(
+        _current_progress.stages_completed, _current_progress.stage
+    )
 
 
 def start_file(file_path: str):
@@ -97,6 +121,7 @@ def start_file(file_path: str):
         _current_progress.stage_elapsed_seconds = 0.0
         _current_progress.stages_completed = []
         _current_progress.error = None
+        _current_progress.progress_percent = 0.0
         _write_progress_file()
 
 
@@ -129,6 +154,7 @@ def finish_file():
             _current_progress.stages_completed.append(_current_progress.stage)
         _current_progress.stage = "idle"
         _current_progress.stage_display = "Complete"
+        _current_progress.progress_percent = 100.0
         _update_elapsed()
         _write_progress_file()
 
@@ -144,6 +170,7 @@ def clear_progress():
         _current_progress.elapsed_seconds = 0.0
         _current_progress.stages_completed = []
         _current_progress.error = None
+        _current_progress.progress_percent = 0.0
         _write_progress_file()
 
 
@@ -193,9 +220,17 @@ def _build_progress_display() -> Panel:
     header = f"[bold]{state.file_name}[/bold] [dim]({state.file_size_mb:.1f} MB)[/dim]"
     elapsed = f"[yellow]Elapsed: {state.elapsed_seconds:.1f}s[/yellow]"
 
+    # Build progress bar
+    bar_width = 40
+    filled = int(bar_width * state.progress_percent / 100)
+    empty = bar_width - filled
+    progress_bar = f"[cyan]{'█' * filled}[/cyan][dim]{'░' * empty}[/dim] [bold]{state.progress_percent:.0f}%[/bold]"
+
     content = Table.grid(padding=(0, 2))
     content.add_column()
     content.add_row(header)
+    content.add_row("")
+    content.add_row(progress_bar)
     content.add_row("")
     content.add_row(table)
     content.add_row("")

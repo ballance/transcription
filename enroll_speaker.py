@@ -3,14 +3,16 @@
 CLI for enrolling speaker voice profiles.
 
 Subcommands:
-  record <name>            Record from microphone and enroll
-  enroll <name> <files..>  Enroll from existing audio files
-  list                     List enrolled speakers
-  remove <name>            Remove a speaker profile
+  record <name>                     Record from microphone and enroll
+  enroll <name> <files..>           Enroll from existing audio files (single speaker)
+  enroll-diarized <name> <file>     Enroll from multi-speaker audio by selecting a speaker
+  list                              List enrolled speakers
+  remove <name>                     Remove a speaker profile
 
 Examples:
   python enroll_speaker.py record "Alice" --duration 30 --samples 3
   python enroll_speaker.py enroll "Bob" meeting.mp3 interview.wav
+  python enroll_speaker.py enroll-diarized "Carol" meeting.mp3 --speaker-label SPEAKER_01
   python enroll_speaker.py list
   python enroll_speaker.py remove "Alice"
 """
@@ -23,10 +25,16 @@ import subprocess
 import sys
 import tempfile
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from config import config
 from speaker_profiles import (
     SpeakerProfile,
     extract_embedding_from_audio,
+    extract_speaker_embedding_from_diarization,
+    list_speakers_in_audio,
     load_all_profiles,
     load_profiles,
     save_profiles,
@@ -205,6 +213,89 @@ def cmd_enroll(args):
         print(f"\nNo samples were enrolled for '{name}'.")
 
 
+def cmd_enroll_diarized(args):
+    """Enroll a speaker from a multi-speaker audio file using diarization."""
+    name = args.name
+    audio_file = args.file
+    speaker_label = args.speaker_label
+    profiles_path = config.speaker_profiles_local_path
+
+    if not config.hf_token:
+        logger.error(
+            "HF_TOKEN is required for embedding extraction. "
+            "Set it in your .env or environment."
+        )
+        sys.exit(1)
+
+    if not os.path.isfile(audio_file):
+        logger.error(f"File not found: {audio_file}")
+        sys.exit(1)
+
+    all_profiles = load_all_profiles(
+        config.speaker_profiles_path, config.speaker_profiles_local_path
+    )
+    local_profiles = load_profiles(profiles_path)
+
+    if name in all_profiles:
+        print(f"Profile '{name}' already exists with {all_profiles[name].sample_count} sample(s).")
+        answer = input("Add more samples? (y/N): ").strip().lower()
+        if answer != "y":
+            print("Aborted.")
+            return
+
+    profile = all_profiles.get(name, SpeakerProfile(name=name))
+
+    # If no speaker label provided, list available speakers
+    if not speaker_label:
+        print(f"Running diarization on '{os.path.basename(audio_file)}' to find speakers...")
+        try:
+            speakers = list_speakers_in_audio(
+                audio_file,
+                config.hf_token,
+                config.whisperx_device,
+                min_speakers=args.min_speakers,
+                max_speakers=args.max_speakers,
+            )
+            if not speakers:
+                logger.error("No speakers found in audio.")
+                sys.exit(1)
+
+            print(f"\nFound {len(speakers)} speaker(s):")
+            for i, spk in enumerate(speakers, 1):
+                print(f"  {i}. {spk}")
+
+            print(f"\nRe-run with --speaker-label to enroll a specific speaker.")
+            print(f"Example: python enroll_speaker.py enroll-diarized '{name}' '{audio_file}' --speaker-label {speakers[0]}")
+            return
+        except Exception as e:
+            logger.error(f"Diarization failed: {e}")
+            sys.exit(1)
+
+    # Extract the specified speaker's embedding
+    print(f"Extracting embedding for '{speaker_label}' from '{os.path.basename(audio_file)}'...")
+    try:
+        embedding = extract_speaker_embedding_from_diarization(
+            audio_file,
+            speaker_label,
+            config.hf_token,
+            config.whisperx_device,
+            min_speakers=args.min_speakers,
+            max_speakers=args.max_speakers,
+        )
+        profile.add_embedding(embedding)
+        print(f"Successfully extracted embedding for '{speaker_label}'.")
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed to extract embedding: {e}")
+        sys.exit(1)
+
+    local_profiles[name] = profile
+    save_profiles(local_profiles, profiles_path)
+    print(f"\nEnrolled '{name}' with {profile.sample_count} total sample(s).")
+
+
 def cmd_list(args):
     """List all enrolled speaker profiles."""
     main_profiles = load_profiles(config.speaker_profiles_path)
@@ -285,6 +376,25 @@ def main():
         "files", nargs="+", help="Audio file(s) containing the speaker's voice"
     )
     enroll_parser.set_defaults(func=cmd_enroll)
+
+    # enroll-diarized
+    diarized_parser = subparsers.add_parser(
+        "enroll-diarized",
+        help="Enroll from a multi-speaker audio file by selecting a specific speaker",
+    )
+    diarized_parser.add_argument("name", help="Speaker name to enroll")
+    diarized_parser.add_argument("file", help="Audio file containing multiple speakers")
+    diarized_parser.add_argument(
+        "--speaker-label",
+        help="Speaker label to enroll (e.g., SPEAKER_01). If not provided, lists available speakers.",
+    )
+    diarized_parser.add_argument(
+        "--min-speakers", type=int, help="Minimum number of speakers in the audio"
+    )
+    diarized_parser.add_argument(
+        "--max-speakers", type=int, help="Maximum number of speakers in the audio"
+    )
+    diarized_parser.set_defaults(func=cmd_enroll_diarized)
 
     # list
     list_parser = subparsers.add_parser("list", help="List enrolled speakers")

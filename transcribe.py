@@ -4,18 +4,35 @@ Single-file audio transcription script using WhisperX.
 For batch processing with file watching, use transcribe_all.py instead.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import argparse
 import logging
 from datetime import datetime
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from config import config
 from whisperx_pipeline import (
     format_segments_as_text,
     load_transcription_model,
     transcribe as whisperx_transcribe,
+    transcribe_multilingual,
 )
+
+
+def _parse_multilingual_spec(language: str) -> list[str] | None:
+    """Return list of language codes if `language` is 'multi' or 'multi:en,es'; else None."""
+    if not language.startswith("multi"):
+        return None
+    if ":" not in language:
+        return ["en", "es"]
+    return [code.strip() for code in language.split(":", 1)[1].split(",") if code.strip()]
 
 # Configure logging
 logging.basicConfig(
@@ -104,14 +121,21 @@ def transcribe_file(input_file, output_file=None, model_size=None, language="en"
     logger.info(f"Starting transcription of '{os.path.basename(input_file)}' ({file_info})")
 
     try:
-        result = whisperx_transcribe(input_file, language=language)
+        multi_languages = _parse_multilingual_spec(language)
+        if multi_languages:
+            result = transcribe_multilingual(input_file, languages=multi_languages)
+        else:
+            result = whisperx_transcribe(input_file, language=language)
 
         segments = result["segments"]
         diarization_applied = result["diarization_applied"]
         detected_language = result["language"]
         recognized_speakers = result.get("recognized_speakers", {})
+        multilingual = result.get("multilingual", False)
 
-        formatted_text = format_segments_as_text(segments, diarization_applied)
+        formatted_text = format_segments_as_text(
+            segments, diarization_applied, show_language=multilingual
+        )
 
         diarize_info = "disabled"
         if diarization_applied:
@@ -178,6 +202,8 @@ Examples:
   %(prog)s audio.mp3 -m large-v2        # Use large-v2 model
   %(prog)s audio.mp3 -l es              # Transcribe Spanish audio
   %(prog)s audio.mp3 -l auto            # Auto-detect language
+  %(prog)s audio.mp3 -l multi           # Code-switched: en+es per region (default)
+  %(prog)s audio.mp3 -l multi:en,es,pt  # Code-switched: explicit language list
   %(prog)s audio.mp3 -v                 # Show detailed progress
   %(prog)s audio.mp3 --diarize          # Enable speaker diarization
 
@@ -202,7 +228,7 @@ For batch processing with file watching, use transcribe_all.py
     )
     parser.add_argument(
         "-l", "--language",
-        help="Language code (e.g., 'en' for English, 'auto' for auto-detect, default: en)",
+        help="Language code: 'en', 'auto', or 'multi[:en,es,...]' for code-switched audio (default: en)",
         default="en"
     )
     parser.add_argument(

@@ -147,12 +147,20 @@ def rename_with_summary(output_file: str) -> str:
         os.rename(output_file, new_path)
         logger.info(f"Renamed transcript: '{os.path.basename(output_file)}' → '{new_name}'")
 
-        # Create symlink from original name to renamed file so skip-checks still work
-        try:
-            os.symlink(new_name, output_file)
-            logger.debug(f"Created symlink: '{os.path.basename(output_file)}' → '{new_name}'")
-        except OSError as e:
-            logger.warning(f"Could not create symlink for '{os.path.basename(output_file)}': {e}")
+        # Create symlink from original name to renamed file so skip-checks still work.
+        # Guard against self-referential/circular links (e.g. when reprocessing an
+        # already-renamed file where new_name == the original basename).
+        original_basename = os.path.basename(output_file)
+        if new_name == original_basename:
+            logger.debug(f"Skipping self-referential symlink for '{original_basename}'")
+        elif os.path.lexists(output_file):
+            logger.debug(f"Skipping symlink for '{original_basename}': path already exists")
+        else:
+            try:
+                os.symlink(new_name, output_file)
+                logger.debug(f"Created symlink: '{original_basename}' → '{new_name}'")
+            except OSError as e:
+                logger.warning(f"Could not create symlink for '{original_basename}': {e}")
 
         return new_path
 

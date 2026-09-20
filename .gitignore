@@ -198,3 +198,6 @@ coverage.xml
 
 # Local speaker profiles (contains other people's voice embeddings)
 speaker_profiles.local.json
+
+# Downloaded model weights (symlinks into the HuggingFace cache; machine-specific)
+models/

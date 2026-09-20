@@ -91,8 +91,10 @@ def rename_with_symlink(folder: str, old_name: str, new_name: str) -> bool:
         # Rename the file
         os.rename(old_path, new_path)
 
-        # Create symlink from original name to new name (if different)
-        if symlink_name != new_name and not os.path.exists(symlink_path):
+        # Create symlink from original name to new name (if different).
+        # Use lexists so an existing (possibly broken) symlink isn't clobbered,
+        # and only link when the target actually resolves.
+        if symlink_name != new_name and not os.path.lexists(symlink_path) and os.path.exists(new_path):
             # Create relative symlink
             os.symlink(new_name, symlink_path)
             print(f"  Created symlink: {symlink_name} -> {new_name}")

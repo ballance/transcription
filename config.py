@@ -86,7 +86,8 @@ class TranscriptionConfig:
 
     def __post_init__(self):
         """Validate configuration after initialization."""
-        valid_models = ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"]
+        valid_models = ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3",
+                        "large-v3-turbo", "turbo", "distil-large-v3"]
         if self.model_size not in valid_models:
             raise ValueError(
                 f"Invalid model size: {self.model_size}. "

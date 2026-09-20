@@ -218,6 +218,158 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
     }
 
 
+def transcribe_multilingual(audio_path: str, languages: list[str]) -> dict:
+    """
+    Transcribe code-switched audio.
+
+    VAD-segments the file, identifies the language of each region (restricted to
+    `languages`), then runs Whisper + alignment per region with the correct
+    language forced. Diarization (when enabled) runs once over the full audio
+    and is assigned to the stitched timeline.
+    """
+    from language_id import segment_by_language
+
+    if not languages:
+        raise ValueError("languages must be a non-empty list (e.g. ['en', 'es'])")
+
+    model = load_transcription_model()
+    device = config.whisperx_device
+    sample_rate = 16000
+
+    prog.set_stage("loading")
+    audio = whisperx.load_audio(audio_path)
+
+    prog.set_stage("language_id")
+    regions = segment_by_language(audio, languages)
+    logger.info(
+        f"Identified {len(regions)} language region(s): "
+        + ", ".join(f"{r.language}({r.end - r.start:.1f}s)" for r in regions)
+    )
+
+    prog.set_stage("transcribing")
+    all_segments: list[dict] = []
+    languages_seen: set[str] = set()
+    for region in regions:
+        start_idx = int(region.start * sample_rate)
+        end_idx = int(region.end * sample_rate)
+        sub_audio = audio[start_idx:end_idx]
+        if len(sub_audio) == 0:
+            continue
+
+        try:
+            sub_result = model.transcribe(
+                sub_audio,
+                batch_size=config.resolved_batch_size,
+                language=region.language,
+            )
+            sub_segments = sub_result.get("segments", [])
+        except Exception as e:
+            logger.warning(
+                f"Transcription failed for region {region.start:.1f}-{region.end:.1f}s "
+                f"(lang={region.language}): {e}"
+            )
+            continue
+
+        try:
+            align_model, align_meta = _load_align_model(region.language)
+            aligned = whisperx.align(
+                sub_segments, align_model, align_meta, sub_audio, device=device,
+            )
+            sub_segments = aligned.get("segments", sub_segments)
+        except Exception as e:
+            logger.warning(
+                f"Alignment failed for region {region.start:.1f}-{region.end:.1f}s "
+                f"(lang={region.language}): {e}"
+            )
+
+        for seg in sub_segments:
+            if "start" in seg:
+                seg["start"] += region.start
+            if "end" in seg:
+                seg["end"] += region.start
+            seg["language"] = region.language
+            for word in seg.get("words", []):
+                if "start" in word:
+                    word["start"] += region.start
+                if "end" in word:
+                    word["end"] += region.start
+
+        all_segments.extend(sub_segments)
+        languages_seen.add(region.language)
+
+    all_segments.sort(key=lambda s: s.get("start", 0.0))
+
+    diarization_applied = False
+    recognized_speakers: dict = {}
+    if config.enable_diarization and config.hf_token:
+        prog.set_stage("diarizing")
+        try:
+            diarize_pipeline = _load_diarize_pipeline()
+            diarize_kwargs = {}
+            if config.min_speakers is not None:
+                diarize_kwargs["min_speakers"] = config.min_speakers
+            if config.max_speakers is not None:
+                diarize_kwargs["max_speakers"] = config.max_speakers
+            if config.enable_speaker_recognition:
+                diarize_kwargs["return_embeddings"] = True
+
+            diarize_result = diarize_pipeline(audio_path, **diarize_kwargs)
+
+            speaker_embeddings = {}
+            if isinstance(diarize_result, tuple) and len(diarize_result) == 2:
+                diarize_segments, speaker_embeddings = diarize_result
+            else:
+                diarize_segments = diarize_result
+
+            assign_result = whisperx.assign_word_speakers(
+                diarize_segments, {"segments": all_segments}
+            )
+            all_segments = assign_result.get("segments", all_segments)
+            diarization_applied = True
+            logger.info(f"Diarization succeeded for {len(all_segments)} segments")
+
+            if config.enable_speaker_recognition and speaker_embeddings:
+                try:
+                    profiles = load_all_profiles(
+                        config.speaker_profiles_path,
+                        config.speaker_profiles_local_path,
+                    )
+                    if profiles:
+                        recognized_speakers = match_speakers(
+                            speaker_embeddings,
+                            profiles,
+                            config.speaker_recognition_threshold,
+                        )
+                        if recognized_speakers:
+                            logger.info(
+                                f"Recognized {len(recognized_speakers)} speaker(s): "
+                                f"{', '.join(recognized_speakers.values())}"
+                            )
+                            for seg in all_segments:
+                                spk = seg.get("speaker", "")
+                                if spk in recognized_speakers:
+                                    seg["speaker"] = recognized_speakers[spk]
+                                for word in seg.get("words", []):
+                                    ws = word.get("speaker", "")
+                                    if ws in recognized_speakers:
+                                        word["speaker"] = recognized_speakers[ws]
+                except Exception as e:
+                    logger.warning(
+                        f"Speaker recognition failed (continuing with SPEAKER_XX labels): {e}"
+                    )
+        except Exception as e:
+            logger.warning(f"Diarization failed (continuing without speaker labels): {e}")
+
+    prog.set_stage("saving")
+    return {
+        "segments": all_segments,
+        "language": "multi:" + ",".join(sorted(languages_seen)) if languages_seen else "multi",
+        "diarization_applied": diarization_applied,
+        "recognized_speakers": recognized_speakers,
+        "multilingual": True,
+    }
+
+
 def _format_time(seconds: float) -> str:
     """Format seconds as HH:MM:SS."""
     h = int(seconds // 3600)
@@ -226,7 +378,11 @@ def _format_time(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def format_segments_as_text(segments: list[dict], diarization_applied: bool) -> str:
+def format_segments_as_text(
+    segments: list[dict],
+    diarization_applied: bool,
+    show_language: bool = False,
+) -> str:
     """
     Format segments into timestamped text output.
 
@@ -235,6 +391,9 @@ def format_segments_as_text(segments: list[dict], diarization_applied: bool) -> 
 
     Without diarization:
         [00:00:00 - 00:00:12] Hello world.
+
+    With show_language=True (multilingual mode), a [lang] tag is inserted:
+        [00:00:00 - 00:00:12] [es] SPEAKER_00: Hola mundo.
     """
     lines = []
     for seg in segments:
@@ -244,10 +403,13 @@ def format_segments_as_text(segments: list[dict], diarization_applied: bool) -> 
         if not text:
             continue
 
+        prefix = f"[{start} - {end}]"
+        if show_language and seg.get("language"):
+            prefix += f" [{seg['language']}]"
         if diarization_applied and "speaker" in seg:
-            lines.append(f"[{start} - {end}] {seg['speaker']}: {text}")
+            lines.append(f"{prefix} {seg['speaker']}: {text}")
         else:
-            lines.append(f"[{start} - {end}] {text}")
+            lines.append(f"{prefix} {text}")
 
     return "\n\n".join(lines)
 

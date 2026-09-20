@@ -10,6 +10,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Optional
 
 import numpy as np
 
@@ -178,6 +179,139 @@ def match_speakers(
         )
 
     return matched_speakers
+
+
+def extract_speaker_embedding_from_diarization(
+    audio_path: str,
+    speaker_label: str,
+    hf_token: str,
+    device: str = "cpu",
+    min_speakers: Optional[int] = None,
+    max_speakers: Optional[int] = None,
+) -> list[float]:
+    """
+    Extract a specific speaker's embedding from a multi-speaker audio file.
+
+    Runs diarization with return_embeddings=True and returns the embedding
+    for the specified speaker label (e.g., "SPEAKER_01").
+
+    Args:
+        audio_path: Path to the audio file.
+        speaker_label: The speaker label to extract (e.g., "SPEAKER_01").
+        hf_token: HuggingFace token for pyannote models.
+        device: Device to run on ("cpu", "cuda", "mps").
+        min_speakers: Minimum number of speakers (optional).
+        max_speakers: Maximum number of speakers (optional).
+
+    Returns:
+        The L2-normalized embedding vector for the specified speaker.
+
+    Raises:
+        ValueError: If the speaker label is not found in the diarization results.
+    """
+    import functools
+    import torch
+
+    _original_torch_load = torch.load
+
+    @functools.wraps(_original_torch_load)
+    def _patched_torch_load(*args, **kwargs):
+        kwargs["weights_only"] = False
+        return _original_torch_load(*args, **kwargs)
+
+    torch.load = _patched_torch_load
+
+    try:
+        from whisperx.diarize import DiarizationPipeline
+
+        pipeline = DiarizationPipeline(
+            use_auth_token=hf_token,
+            device=device,
+        )
+
+        diarize_kwargs = {"return_embeddings": True}
+        if min_speakers is not None:
+            diarize_kwargs["min_speakers"] = min_speakers
+        if max_speakers is not None:
+            diarize_kwargs["max_speakers"] = max_speakers
+
+        diarize_result = pipeline(audio_path, **diarize_kwargs)
+
+        if isinstance(diarize_result, tuple) and len(diarize_result) == 2:
+            _, embeddings = diarize_result
+            if embeddings:
+                available_speakers = list(embeddings.keys())
+                if speaker_label not in embeddings:
+                    raise ValueError(
+                        f"Speaker '{speaker_label}' not found. "
+                        f"Available speakers: {', '.join(available_speakers)}"
+                    )
+
+                emb = embeddings[speaker_label]
+                embedding = emb if isinstance(emb, list) else emb.tolist()
+                # L2-normalize
+                arr = np.array(embedding)
+                norm = np.linalg.norm(arr)
+                if norm > 0:
+                    arr = arr / norm
+                return arr.tolist()
+
+        raise ValueError(
+            "DiarizationPipeline did not return embeddings. "
+            "Check that the audio contains multiple speakers."
+        )
+    finally:
+        torch.load = _original_torch_load
+
+
+def list_speakers_in_audio(
+    audio_path: str,
+    hf_token: str,
+    device: str = "cpu",
+    min_speakers: Optional[int] = None,
+    max_speakers: Optional[int] = None,
+) -> list[str]:
+    """
+    Run diarization and return the list of speaker labels found in the audio.
+
+    Useful for discovering which speakers exist before enrolling one.
+    """
+    import functools
+    import torch
+
+    _original_torch_load = torch.load
+
+    @functools.wraps(_original_torch_load)
+    def _patched_torch_load(*args, **kwargs):
+        kwargs["weights_only"] = False
+        return _original_torch_load(*args, **kwargs)
+
+    torch.load = _patched_torch_load
+
+    try:
+        from whisperx.diarize import DiarizationPipeline
+
+        pipeline = DiarizationPipeline(
+            use_auth_token=hf_token,
+            device=device,
+        )
+
+        diarize_kwargs = {"return_embeddings": True}
+        if min_speakers is not None:
+            diarize_kwargs["min_speakers"] = min_speakers
+        if max_speakers is not None:
+            diarize_kwargs["max_speakers"] = max_speakers
+
+        diarize_result = pipeline(audio_path, **diarize_kwargs)
+
+        if isinstance(diarize_result, tuple) and len(diarize_result) == 2:
+            _, embeddings = diarize_result
+            if embeddings:
+                return sorted(embeddings.keys())
+
+        return []
+    finally:
+        torch.load = _original_torch_load
 
 
 def extract_embedding_from_audio(

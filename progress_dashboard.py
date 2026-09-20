@@ -41,6 +41,8 @@ def get_transcription_status():
         for f in os.listdir(config.video_folder):
             if f.lower().endswith(config.supported_video_formats):
                 path = os.path.join(config.video_folder, f)
+                if not os.path.exists(path):
+                    continue
                 base = os.path.splitext(f)[0]
                 audio_exists = any(
                     os.path.exists(os.path.join(config.work_folder, base + ext))
@@ -62,6 +64,8 @@ def get_transcription_status():
         for f in os.listdir(config.work_folder):
             if f.lower().endswith(config.supported_audio_formats) and not f.endswith(".backup"):
                 path = os.path.join(config.work_folder, f)
+                if not os.path.exists(path):
+                    continue
                 base = os.path.splitext(f)[0]
                 transcription_exists = os.path.exists(
                     os.path.join(config.output_folder, base + ".txt")
@@ -78,6 +82,9 @@ def get_transcription_status():
         for f in os.listdir(config.output_folder):
             if f.endswith(".txt") and not f.endswith(".backup"):
                 path = os.path.join(config.output_folder, f)
+                # Skip broken/circular symlinks that can't be stat'd (ELOOP, etc.)
+                if not os.path.exists(path):
+                    continue
                 size = os.path.getsize(path)
                 # Read first few lines to get metadata
                 try:
@@ -112,6 +119,7 @@ def get_transcription_status():
                     "elapsed_seconds": progress_data.get("elapsed_seconds", 0),
                     "stage_elapsed_seconds": progress_data.get("stage_elapsed_seconds", 0),
                     "stages_completed": progress_data.get("stages_completed", []),
+                    "progress_percent": progress_data.get("progress_percent", 0),
                     "error": progress_data.get("error"),
                 }
         except Exception:
@@ -252,6 +260,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div id="current-progress" class="card in-progress" style="display: none; margin-bottom: 20px;">
             <h3>Currently Processing</h3>
             <div id="current-file"></div>
+            <div id="progress-bar-container" style="margin: 15px 0;"></div>
             <div id="stage-progress" style="margin: 15px 0;"></div>
             <div id="progress-text" style="text-align: center; color: #888;"></div>
         </div>
@@ -353,6 +362,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 });
                 stageHtml += '</div>';
                 document.getElementById('stage-progress').innerHTML = stageHtml;
+
+                // Progress bar
+                const percent = p.progress_percent || 0;
+                const progressBarHtml = `
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${percent}%"></div>
+                    </div>
+                    <div style="text-align: center; font-size: 14px; color: #00d9ff; font-weight: bold;">${percent.toFixed(0)}% Complete</div>
+                `;
+                document.getElementById('progress-bar-container').innerHTML = progressBarHtml;
 
                 const elapsed = p.elapsed_seconds ? p.elapsed_seconds.toFixed(1) : '0';
                 const stageTime = p.stage_elapsed_seconds ? p.stage_elapsed_seconds.toFixed(1) : '0';

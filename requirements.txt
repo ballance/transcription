@@ -6,6 +6,10 @@ python-multipart>=0.0.6
 # Transcription engine
 whisperx>=3.1.1
 
+# Multilingual segmentation (VAD + spoken-language ID)
+silero-vad>=5.1
+speechbrain>=1.0.0
+
 # Async processing
 celery>=5.3.4
 redis>=5.0.1
