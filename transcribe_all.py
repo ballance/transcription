@@ -445,13 +445,25 @@ def scan_folder():
         else:
             logger.warning(f"Audio folder does not exist: {config.audio_folder}")
 
-        # Sort files: PRIORITY files first, then by modification time (newest first) if enabled
+        # Collect files from the "do-it-now" priority folder (always processed first)
+        priority_folder = os.path.join(config.work_folder, "do-it-now")
+        if os.path.exists(priority_folder):
+            for file_name in os.listdir(priority_folder):
+                if file_name.lower().endswith(
+                    config.supported_audio_formats + config.supported_video_formats
+                ):
+                    file_path = os.path.join(priority_folder, file_name)
+                    seen_files.add(file_path)
+                    if is_file_stable(file_path):
+                        candidate_files.append(file_path)
+
+        # Sort: do-it-now folder first, then PRIORITY-named files, then newest first
         if candidate_files:
             def sort_key(f: str) -> tuple:
-                filename = os.path.basename(f).upper()
-                is_priority = 0 if "PRIORITY" in filename else 1
+                is_do_it_now = 0 if os.path.dirname(f) == priority_folder else 1
+                is_priority = 0 if "PRIORITY" in os.path.basename(f).upper() else 1
                 mtime = -os.path.getmtime(f) if config.prioritize_recent else 0
-                return (is_priority, mtime)
+                return (is_do_it_now, is_priority, mtime)
 
             candidate_files.sort(key=sort_key)
 
@@ -471,6 +483,7 @@ def scan_folder():
 if __name__ == "__main__":
     os.makedirs(config.output_folder, exist_ok=True)
     os.makedirs(config.work_folder, exist_ok=True)
+    os.makedirs(os.path.join(config.work_folder, "do-it-now"), exist_ok=True)
     logger.info(
         f"Starting folder scan (interval: {config.scan_interval}s, "
         f"stability window: {config.stability_window}s)"
