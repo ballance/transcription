@@ -20,9 +20,9 @@ load_dotenv()
 from config import config
 from whisperx_pipeline import (
     format_segments_as_text,
-    load_transcription_model,
     transcribe as whisperx_transcribe,
     transcribe_multilingual,
+    warm_up_asr,
 )
 
 
@@ -112,10 +112,9 @@ def transcribe_file(input_file, output_file=None, model_size=None, language="en"
                 return False
             config.enable_diarization = True
 
-        load_transcription_model()
-        logger.info(f"Successfully loaded WhisperX model: {model_size} on {device}")
+        warm_up_asr()
     except Exception as e:
-        logger.error(f"Failed to load WhisperX model '{model_size}': {e}")
+        logger.error(f"Failed to load ASR model '{model_size}': {e}")
         return False
 
     logger.info(f"Starting transcription of '{os.path.basename(input_file)}' ({file_info})")

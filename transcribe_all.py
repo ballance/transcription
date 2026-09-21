@@ -9,9 +9,9 @@ from config import config
 from reprocess_transcriptions import extract_summary_from_content
 from whisperx_pipeline import (
     format_segments_as_text,
-    load_transcription_model,
     strip_formatting_for_summary,
     transcribe as whisperx_transcribe,
+    warm_up_asr,
 )
 
 # Configure logging
@@ -35,11 +35,11 @@ logger.info(f"Skipping files created before: {config.skip_files_before_date}")
 logger.info(f"File stability window: {config.stability_window}s (files must be unchanged before processing)")
 logger.info(f"Prioritize recent files: {config.prioritize_recent}")
 
-# Load WhisperX model
+# Warm up the active ASR backend (loads WhisperX only when it's the backend)
 try:
-    load_transcription_model()
+    warm_up_asr()
 except Exception as e:
-    logger.error(f"Failed to load WhisperX model '{config.model_size}': {e}")
+    logger.error(f"Failed to load ASR model '{config.model_size}': {e}")
     raise
 
 

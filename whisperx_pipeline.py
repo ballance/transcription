@@ -135,6 +135,23 @@ def _run_asr(audio, language: str) -> tuple[str, list[dict]]:
     return result.get("language", language), result.get("segments", [])
 
 
+def warm_up_asr() -> None:
+    """Pre-load the active ASR backend at startup (fail-fast + warm start).
+
+    For the whisperx backend this loads the CTranslate2 model. For mlx the model
+    loads lazily on first transcription (whisperx stays available only as a
+    fallback), so we skip the expensive CPU load here and just log the backend.
+    """
+    backend = config.resolved_asr_backend
+    if backend == "whisperx":
+        load_transcription_model()
+    else:
+        logger.info(
+            f"ASR backend: {backend} (repo={_mlx_repo()}); "
+            f"WhisperX will load lazily only if mlx fails"
+        )
+
+
 def load_transcription_model():
     """Load and cache the WhisperX transcription model."""
     global _whisperx_model
