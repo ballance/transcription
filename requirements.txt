@@ -6,6 +6,9 @@ python-multipart>=0.0.6
 # Transcription engine
 whisperx>=3.1.1
 
+# Apple GPU ASR backend (Apple Silicon only; enables ASR_BACKEND=mlx/auto)
+mlx-whisper>=0.4.0; sys_platform == 'darwin' and platform_machine == 'arm64'
+
 # Multilingual segmentation (VAD + spoken-language ID)
 silero-vad>=5.1
 speechbrain>=1.0.0

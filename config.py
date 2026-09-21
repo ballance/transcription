@@ -23,6 +23,12 @@ class TranscriptionConfig:
     compute_type: str = os.getenv("WHISPER_COMPUTE_TYPE", "auto")
     batch_size: int = int(os.getenv("WHISPERX_BATCH_SIZE", "0"))  # 0 = auto-select
 
+    # ASR backend: "auto" (mlx on Apple Silicon, else whisperx), "mlx", or "whisperx".
+    # mlx runs the transcribe stage on the Apple GPU; whisperx (CTranslate2) is CPU/CUDA only.
+    asr_backend: str = field(default_factory=lambda: os.getenv("ASR_BACKEND", "auto"))
+    # Optional explicit MLX model repo; overrides the model_size → repo mapping.
+    mlx_whisper_repo: str = os.getenv("MLX_WHISPER_REPO", "")
+
     # Diarization settings
     enable_diarization: bool = os.getenv("WHISPER_DIARIZATION", "false").lower() == "true"
     hf_token: str = os.getenv("HF_TOKEN", "")
@@ -94,6 +100,13 @@ class TranscriptionConfig:
                 f"Must be one of: {', '.join(valid_models)}"
             )
 
+        valid_backends = ("auto", "mlx", "whisperx")
+        if self.asr_backend not in valid_backends:
+            raise ValueError(
+                f"Invalid ASR_BACKEND: {self.asr_backend}. "
+                f"Must be one of: {', '.join(valid_backends)}"
+            )
+
         if self.enable_diarization and not self.hf_token:
             raise ValueError(
                 "Diarization requires a HuggingFace token. "
@@ -144,6 +157,15 @@ class TranscriptionConfig:
         if torch.cuda.is_available():
             return "cuda"
         return "cpu"
+
+    @property
+    def resolved_asr_backend(self) -> str:
+        """Resolve the ASR backend: 'auto' → mlx on Apple Silicon (MPS), else whisperx."""
+        if self.asr_backend != "auto":
+            return self.asr_backend
+        if torch.backends.mps.is_available():
+            return "mlx"
+        return "whisperx"
 
     @property
     def whisperx_device(self) -> str:

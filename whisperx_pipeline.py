@@ -65,6 +65,76 @@ def _with_mps_fallback(stage: str, fn):
         return fn()
 
 
+# model_size → mlx-community HF repo for the mlx-whisper backend. Unmapped sizes
+# fall back to the conventional name; MLX_WHISPER_REPO overrides entirely (hedges
+# against repo names that differ from this convention).
+_MLX_REPO_MAP = {
+    "tiny": "mlx-community/whisper-tiny-mlx",
+    "base": "mlx-community/whisper-base-mlx",
+    "small": "mlx-community/whisper-small-mlx",
+    "medium": "mlx-community/whisper-medium-mlx",
+    "large": "mlx-community/whisper-large-v3-mlx",
+    "large-v2": "mlx-community/whisper-large-v2-mlx",
+    "large-v3": "mlx-community/whisper-large-v3-mlx",
+    "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
+    "turbo": "mlx-community/whisper-large-v3-turbo",
+    "distil-large-v3": "mlx-community/distil-whisper-large-v3",
+}
+
+
+def _mlx_repo() -> str:
+    """Resolve the MLX model repo for the configured model size."""
+    if config.mlx_whisper_repo:
+        return config.mlx_whisper_repo
+    return _MLX_REPO_MAP.get(
+        config.model_size, f"mlx-community/whisper-{config.model_size}-mlx"
+    )
+
+
+def _mlx_transcribe(audio, language: str) -> dict:
+    """Transcribe on the Apple GPU via mlx-whisper.
+
+    Returns a whisperx-shaped dict: {"segments": [...], "language": str}, where
+    each segment carries start/end/text — the contract whisperx.align consumes.
+    """
+    import mlx_whisper  # lazy: Apple-Silicon-only dependency
+
+    repo = _mlx_repo()
+    logger.info(f"Transcribing with mlx-whisper on Apple GPU (repo={repo})")
+    result = mlx_whisper.transcribe(
+        audio,
+        path_or_hf_repo=repo,
+        language=None if language == "auto" else language,
+    )
+    return {
+        "segments": result.get("segments", []),
+        "language": result.get("language", language),
+    }
+
+
+def _run_asr(audio, language: str) -> tuple[str, list[dict]]:
+    """Stage 1 ASR with backend dispatch. Returns (detected_language, segments).
+
+    Uses mlx-whisper (Apple GPU) when configured; on any mlx failure, falls back
+    to the WhisperX (CTranslate2, CPU/CUDA) backend. batch_size applies only to
+    the WhisperX path — mlx chunks internally.
+    """
+    if config.resolved_asr_backend == "mlx":
+        try:
+            asr = _mlx_transcribe(audio, language)
+            return asr["language"], asr["segments"]
+        except Exception as e:
+            logger.warning(f"mlx-whisper ASR failed ({e}); falling back to WhisperX")
+
+    model = load_transcription_model()
+    result = model.transcribe(
+        audio,
+        batch_size=config.resolved_batch_size,
+        language=None if language == "auto" else language,
+    )
+    return result.get("language", language), result.get("segments", [])
+
+
 def load_transcription_model():
     """Load and cache the WhisperX transcription model."""
     global _whisperx_model
@@ -131,21 +201,12 @@ def transcribe(audio_path: str, language: str = "en") -> dict:
         - "language": detected language code
         - "diarization_applied": bool
     """
-    model = load_transcription_model()
-
     # Stage 1: Transcribe
     prog.set_stage("loading")
     audio = whisperx.load_audio(audio_path)
 
     prog.set_stage("transcribing")
-    result = model.transcribe(
-        audio,
-        batch_size=config.resolved_batch_size,
-        language=language if language != "auto" else None,
-    )
-
-    detected_language = result.get("language", language)
-    segments = result.get("segments", [])
+    detected_language, segments = _run_asr(audio, language)
 
     # Stage 2: Align (for word-level timestamps)
     prog.set_stage("aligning")
@@ -263,7 +324,6 @@ def transcribe_multilingual(audio_path: str, languages: list[str]) -> dict:
     if not languages:
         raise ValueError("languages must be a non-empty list (e.g. ['en', 'es'])")
 
-    model = load_transcription_model()
     sample_rate = 16000
 
     prog.set_stage("loading")
@@ -287,12 +347,7 @@ def transcribe_multilingual(audio_path: str, languages: list[str]) -> dict:
             continue
 
         try:
-            sub_result = model.transcribe(
-                sub_audio,
-                batch_size=config.resolved_batch_size,
-                language=region.language,
-            )
-            sub_segments = sub_result.get("segments", [])
+            _, sub_segments = _run_asr(sub_audio, region.language)
         except Exception as e:
             logger.warning(
                 f"Transcription failed for region {region.start:.1f}-{region.end:.1f}s "
