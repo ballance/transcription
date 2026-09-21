@@ -404,9 +404,13 @@ def process_file(file_path):
         # Blocking conversion first
         if convert_to_mp3(file_path, mp3_file):
             transcribe_file(mp3_file)
+            return True
     elif file_path.lower().endswith(config.supported_audio_formats):
         if os.path.getsize(file_path) > 0:
             transcribe_file(file_path)
+            return True
+
+    return False
 
 
 def scan_folder():
@@ -467,9 +471,12 @@ def scan_folder():
 
             candidate_files.sort(key=sort_key)
 
-        # Process files
+        # Process files. Stop after actually transcribing one so the next
+        # scan re-sorts and any file newly dropped into do-it-now can preempt
+        # the backlog. Skips (already-done, pre-cutoff) fall through cheaply.
         for file_path in candidate_files:
-            process_file(file_path)
+            if process_file(file_path):
+                break
 
         # Clean up tracker entries for files that no longer exist
         cleanup_stability_tracker(seen_files)
