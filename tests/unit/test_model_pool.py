@@ -11,7 +11,7 @@ Tests the thread-safe model pool implementation including:
 import pytest
 import threading
 import time
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import ANY, Mock, patch, MagicMock
 from model_pool import ModelPool, ModelInstance, acquire_model
 
 
@@ -69,7 +69,8 @@ class TestModelPool:
         assert instance is not None
         assert instance.model_size == "tiny"
         assert instance.use_count == 0
-        mock_load_model.assert_called_once_with("tiny")
+        # Model pool passes the resolved compute device (mps/cuda/cpu) to load_model.
+        mock_load_model.assert_called_once_with("tiny", device=ANY)
     
     @patch('model_pool.whisper.load_model')
     def test_acquire_reuses_released_model(self, mock_load_model, mock_whisper_model):
@@ -137,7 +138,7 @@ class TestModelPool:
     def test_oom_fallback(self, mock_load_model):
         """Test OOM fallback to smaller model."""
         # Simulate OOM for large model
-        def load_model_side_effect(size):
+        def load_model_side_effect(size, **kwargs):  # accepts device= kwarg
             if size == "large":
                 raise RuntimeError("CUDA out of memory")
             else:
@@ -200,8 +201,8 @@ class TestAcquireModelContextManager:
         with acquire_model("small") as model:
             assert model == mock_instance.model
         
-        # Should have acquired and released
-        mock_pool.acquire.assert_called_once_with("small")
+        # Should have acquired and released (context manager forwards the timeout arg)
+        mock_pool.acquire.assert_called_once_with("small", ANY)
         mock_pool.release.assert_called_once_with(mock_instance)
     
     @patch('model_pool.get_model_pool')
