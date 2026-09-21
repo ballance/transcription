@@ -8,8 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
 from app import app
-from database import Base
-from models import TranscriptionJob, TranscriptionResult, ErrorLog
+from models import Base, TranscriptionJob, TranscriptionResult, ErrorLog
 
 
 @pytest.fixture(scope="session")
