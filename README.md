@@ -451,6 +451,12 @@ For detailed troubleshooting, see **[SETUP.md](SETUP.md)** and **[agents.md](age
 - [x] Admin health endpoints
 - [x] API documentation
 
+### ✅ Completed (Phase 3 — Apple GPU acceleration)
+- [x] Selectable ASR backend (`ASR_BACKEND=auto|mlx|whisperx`)
+- [x] mlx-whisper transcription on the Apple GPU (Metal), auto-selected on Apple Silicon
+- [x] Alignment and diarization on the Apple GPU (MPS) with CPU fallback
+- [x] Graceful fallback to the WhisperX (CTranslate2) backend when mlx is unavailable
+
 ### 🚧 Future Enhancements
 - [ ] Speaker diarization (who spoke when)
 - [ ] Custom vocabulary/terminology
